@@ -104,79 +104,63 @@ async function handleScrape(params, res) {
 
     const ads = await page.evaluate((limitCount) => {
       const results = [];
-      const selectors = [
-        '[data-testid="ad-archive-card"]',
-        '._7jvw', '._8njr', '._7jvs',
-        '.x1dr75xp.x1ja2u2z',
-        'div[class*="xh8yej3"]',
-      ];
 
-      let cards = [];
-      for (const sel of selectors) {
-        cards = document.querySelectorAll(sel);
-        if (cards.length >= 2) break;
-      }
-
-      if (cards.length < 2) {
-        const allDivs = Array.from(document.querySelectorAll('div'));
-        const withId = allDivs.filter(div => {
-          const text = div.innerText || '';
-          return (text.includes('Library ID') || text.includes('Identificador de la biblioteca') || text.includes('资料库编号') || text.includes('广告库编号')) &&
-                 (text.includes('Started running') || text.includes('En circulación desde') || text.includes('开始投放') || text.includes('начало'));
-        });
-        cards = withId.slice(0, limitCount);
-      }
-
-      Array.from(cards).slice(0, limitCount * 2).forEach((card, index) => {
+      // Parse the full page text into individual ad blocks
+      const fullText = document.body.innerText;
+      
+      // Split by "Active\nLibrary ID:" pattern which starts each ad
+      const adBlocks = fullText.split(/(?=Active\nLibrary ID:)/);
+      
+      adBlocks.slice(0, limitCount * 2).forEach((block, index) => {
         try {
-          const text = card.innerText || '';
-          if (text.length < 20) return;
-          const lines = text.split('\n').filter(l => l.trim().length > 2);
-
-          const libIdMatch = card.innerHTML.match(/\/ads\/library\/\?id=(\d+)/);
-          const idMatch = card.innerHTML.match(/(?:id=|library_id=|"id":")(\d{10,})/);
-          const adId = libIdMatch ? libIdMatch[1] : (idMatch ? idMatch[1] : `${Date.now()}_${index}`);
-
-          const pageNameEl = card.querySelector('[data-testid="ad-archive-card-page-name"], a[href*="facebook.com/"]');
-          let pageName = pageNameEl?.innerText?.trim() || '';
-          if (!pageName) {
-            pageName = lines.find(l =>
-              l.length > 2 && l.length < 60 &&
-              !l.includes(':') && !l.match(/^\d/) &&
-              !l.includes('Activo') && !l.includes('Active') &&
-              !l.includes('Platform') && !l.includes('Publicidad')
-            ) || 'Advertiser';
-          }
-
-          const copyLines = lines.filter(l =>
-            l.length > 10 &&
-            !l.match(/^(Activo|Active|Plataformas|Platforms|Identificador|Library ID|En circulación|Started running|Este anuncio|This ad|Ver detalles|See details|Publicidad|Sponsored)/i) &&
-            !l.match(/^\d{5,}$/)
-          );
-          const adCopy = copyLines.slice(0, 4).join(' ').trim().substring(0, 500);
-
-          const dateMatch = text.match(/(?:Started running|En circulación desde el?|开始投放|начало показа)[:\s]*(\d+\s+\w+\s+\d{4}|\w+\s+\d+,?\s+\d{4}|\d{4}年\d+月\d+日)/i);
+          if (!block.includes('Library ID:')) return;
+          
+          // Extract Library ID
+          const idMatch = block.match(/Library ID:\s*(\d+)/);
+          if (!idMatch) return;
+          const adId = idMatch[1];
+          
+          // Extract start date
+          const dateMatch = block.match(/Started running on\s+([^\n]+)/);
           const startDate = dateMatch ? dateMatch[1].trim() : '';
-
-          const img = card.querySelector('img[src*="fbcdn"], img[src*="facebook"]');
-          const imageUrl = img?.src || '';
-
-          const pageLink = card.querySelector('a[href*="facebook.com/"]:not([href*="ads/library"])');
-          const pageUrl = pageLink?.href || '';
-
-          if (adCopy.length > 5 || pageName.length > 2) {
+          
+          // Extract page name (line after "See ad details\n")
+          const pageMatch = block.match(/See ad details\n([^\n]+)/);
+          let pageName = pageMatch ? pageMatch[1].trim() : '';
+          
+          // Remove "Sponsored" suffix if present
+          pageName = pageName.replace(/\nSponsored$/, '').trim();
+          
+          // Extract ad copy (lines after "Sponsored\n")
+          const sponsoredIdx = block.indexOf('Sponsored
+');
+          let adCopy = '';
+          if (sponsoredIdx !== -1) {
+            const afterSponsored = block.substring(sponsoredIdx + 10);
+            // Take first 4 meaningful lines
+            const copyLines = afterSponsored.split('\n')
+              .filter(l => l.trim().length > 5 && !l.match(/^(http|www|\[)/i) && !l.match(/^#\w+/))
+              .slice(0, 4);
+            adCopy = copyLines.join(' ').trim().substring(0, 500);
+          }
+          
+          // Get image from DOM using the ad ID
+          const imgEl = document.querySelector(`[id*="${adId}"] img, a[href*="${adId}"] img`);
+          const imageUrl = imgEl?.src || '';
+          
+          if (pageName && adCopy) {
             results.push({
               ad_archive_id: adId,
-              page_name: pageName.slice(0, 80),
+              page_name: pageName.substring(0, 80),
               ad_copy: adCopy,
               ad_text: adCopy,
               start_date: startDate,
               image_url: imageUrl,
-              page_url: pageUrl,
-              library_url: adId.match(/^\d{10,}$/) ? `https://www.facebook.com/ads/library/?id=${adId}` : ''
+              page_url: '',
+              library_url: `https://www.facebook.com/ads/library/?id=${adId}`
             });
           }
-        } catch (e) { console.log('card error:', e.message); }
+        } catch(e) {}
       });
 
       return results;
