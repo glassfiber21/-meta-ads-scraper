@@ -137,7 +137,12 @@ async function handleScrape(params, res) {
           const pageNameEl = card.querySelector('[data-testid="ad-archive-card-page-name"], a[href*="facebook.com/"]');
           let pageName = pageNameEl?.innerText?.trim() || '';
           if (!pageName) {
-            pageName = lines.find(l => l.length > 2 && l.length < 60 && !l.includes(':') && !l.match(/^\d/) && !l.includes('Activo') && !l.includes('Active') && !l.includes('Platform') && !l.includes('Publicidad')) || 'Advertiser';
+            pageName = lines.find(l =>
+              l.length > 2 && l.length < 60 &&
+              !l.includes(':') && !l.match(/^\d/) &&
+              !l.includes('Activo') && !l.includes('Active') &&
+              !l.includes('Platform') && !l.includes('Publicidad')
+            ) || 'Advertiser';
           }
 
           const copyLines = lines.filter(l =>
@@ -192,7 +197,6 @@ async function handleScrape(params, res) {
         else if (weeksMatch) daysActive = parseInt(weeksMatch[1]) * 7;
         else if (monthsMatch) daysActive = parseInt(monthsMatch[1]) * 30;
       }
-
       const productName = extractProductName(ad.ad_copy, ad.page_name);
       return { ...ad, product_name: productName, days_active: daysActive, is_english: isEnglish(ad.ad_copy) };
     })
