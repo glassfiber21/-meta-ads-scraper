@@ -2,64 +2,106 @@ const express = require('express');
 const cors = require('cors');
 const puppeteer = require('puppeteer');
 const path = require('path');
+const https = require('https');
 
 const app = express();
-app.use(cors({ origin: '*', methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type'] }));
+app.use(cors({ origin: '*', methods: ['GET','POST','OPTIONS'], allowedHeaders: ['Content-Type'] }));
 app.use(express.json());
 
 const PORT = process.env.PORT || 8080;
 const COUNTRY_CODES = { 'USA':'US','UK':'GB','US':'US','GB':'GB','ES':'ES' };
 
-app.get('/', (req, res) => res.json({ status: 'Meta Ads Scraper activo', version: '3.0', endpoints: ['/scrape-ads','/health'] }));
+app.get('/', (req, res) => res.json({ status: 'Meta Ads Scraper activo', version: '4.0', endpoints: ['/scrape-ads','/health'] }));
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 app.get('/cazador', (req, res) => res.sendFile(path.join(__dirname, 'cazador.html')));
 app.use(express.static(__dirname));
 
 function isEnglish(text) {
   if (!text) return false;
-  const spanishWords = ['hogar','cocina','muebles','desde','para','con','que','una','sus','los','las','del','por','más','tiene','este','esta','nuestro','nuestra','también','pero','como','todo','nuevo','nueva'];
-  const lower = text.toLowerCase();
-  return spanishWords.filter(w => lower.includes(w)).length < 3;
+  const spanish = ['hogar','cocina','muebles','desde','para','con','que','una','sus','los','las','del','por','más','tiene','este','esta','nuestro','nuestra','también'];
+  return spanish.filter(w => text.toLowerCase().includes(w)).length < 3;
 }
 
-function slugToTitle(slug) {
-  if (!slug) return '';
-  return slug
-    .replace(/[-_]/g, ' ')
-    .replace(/\.(html?|php|aspx?)$/i, '')
-    .split(' ')
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(' ')
-    .trim();
+// Descarga imagen y la convierte a base64
+async function imageToBase64(url) {
+  if (!url || !url.startsWith('http')) return null;
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve(null), 5000);
+    const req = https.get(url, (res) => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        clearTimeout(timeout);
+        const buf = Buffer.concat(chunks);
+        const b64 = buf.toString('base64');
+        const type = res.headers['content-type'] || 'image/jpeg';
+        resolve({ data: b64, type });
+      });
+      res.on('error', () => { clearTimeout(timeout); resolve(null); });
+    });
+    req.on('error', () => { clearTimeout(timeout); resolve(null); });
+  });
 }
 
-function extractProductFromUrl(url) {
-  if (!url) return '';
+// Claude Vision: identifica producto de copy + imagen
+async function identifyProduct(ad) {
   try {
-    const u = new URL(url);
-    const path = u.pathname;
-    // Shopify: /products/product-name
-    const shopify = path.match(/\/products\/([^/?#]+)/i);
-    if (shopify) return slugToTitle(shopify[1]);
-    // WooCommerce: /product/product-name
-    const woo = path.match(/\/product\/([^/?#]+)/i);
-    if (woo) return slugToTitle(woo[1]);
-    // Generic last segment
-    const parts = path.split('/').filter(Boolean);
-    const last = parts[parts.length - 1];
-    if (last && last.length > 3 && !last.match(/^(index|home|shop|store|cart|checkout)$/i)) {
-      return slugToTitle(last);
+    const messages = [];
+    const content = [];
+
+    // Añadir imagen si existe
+    if (ad.image_url) {
+      const img = await imageToBase64(ad.image_url);
+      if (img) {
+        content.push({
+          type: 'image',
+          source: { type: 'base64', media_type: img.type, data: img.data }
+        });
+      }
     }
-  } catch(e) {}
-  return '';
+
+    content.push({
+      type: 'text',
+      text: `This is a Facebook ad. Ad copy: "${(ad.ad_copy || '').substring(0, 300)}"
+
+Identify the PHYSICAL PRODUCT being sold. Reply ONLY with valid JSON:
+{"product":"<product name in English, 2-4 words max>","confidence":<0.0-1.0>}
+
+Rules:
+- Product must be a physical item (not a service, app, or brand)
+- Use generic name (e.g. "Ice Cream Maker" not "Ninja Creami")
+- If no clear physical product, use {"product":"unknown","confidence":0}
+- NO explanation, ONLY the JSON`
+    });
+
+    messages.push({ role: 'user', content });
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 100,
+        messages
+      })
+    });
+
+    const data = await response.json();
+    const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
+    const clean = text.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(clean);
+    return parsed;
+  } catch(e) {
+    return { product: 'unknown', confidence: 0 };
+  }
 }
 
 async function handleScrape(params, res) {
   const { country = 'US', niche = '', min_days_active = 30, limit = 6 } = params;
-  if (!niche) return res.status(400).json({ error: 'El parámetro niche es obligatorio' });
+  if (!niche) return res.status(400).json({ error: 'niche es obligatorio' });
 
   const countryCode = COUNTRY_CODES[country.toUpperCase()] || 'US';
-  console.log(`[v3] nicho="${niche}" | país=${countryCode} | días_min=${min_days_active} | límite=${limit}`);
+  console.log(`[v4] nicho="${niche}" | ${countryCode} | días≥${min_days_active} | límite=${limit}`);
 
   let browser;
   try {
@@ -79,22 +121,19 @@ async function handleScrape(params, res) {
       else req.continue();
     });
 
-    // FASE 1: Extraer muchos anuncios (hasta 100 internamente)
+    // FASE 1: Scraping de 100 anuncios
     const searchUrl = `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${countryCode}&q=${encodeURIComponent(niche)}&search_type=keyword_unordered&media_type=all&sort_data[mode]=total_impressions&sort_data[direction]=desc`;
     console.log('[URL]', searchUrl);
 
     await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 45000 });
     await new Promise(r => setTimeout(r, 6000));
 
-    for (let i = 0; i < 4; i++) {
-      await page.evaluate(s => window.scrollTo(0, document.body.scrollHeight * s / 4), i + 1);
-      await new Promise(r => setTimeout(r, 1500));
+    // Scroll agresivo para cargar más anuncios
+    for (let i = 0; i < 6; i++) {
+      await page.evaluate(s => window.scrollTo(0, document.body.scrollHeight * s / 6), i + 1);
+      await new Promise(r => setTimeout(r, 1200));
     }
 
-    const html = await page.content();
-    console.log('[HTML length]', html.length);
-
-    // FASE 1: Parse anuncios del texto de la página
     const rawAds = await page.evaluate(() => {
       const results = [];
       const fullText = document.body.innerText;
@@ -102,7 +141,6 @@ async function handleScrape(params, res) {
 
       blocks.forEach((block, index) => {
         if (!block.includes('Library ID:')) return;
-
         const idMatch = block.match(/Library ID:\s*(\d+)/);
         if (!idMatch) return;
         const adId = idMatch[1];
@@ -111,168 +149,139 @@ async function handleScrape(params, res) {
         const startDate = dateMatch ? dateMatch[1].trim() : '';
 
         const pageMatch = block.match(/See ad details\n([^\n]+)/);
-        let pageName = pageMatch ? pageMatch[1].trim() : '';
+        const pageName = pageMatch ? pageMatch[1].trim() : '';
 
         const sponsoredIdx = block.indexOf('Sponsored\n');
         let adCopy = '';
-        let ctaLink = '';
-
         if (sponsoredIdx !== -1) {
-          const afterSponsored = block.substring(sponsoredIdx + 10);
-          const lines = afterSponsored.split('\n').filter(l => l.trim().length > 3);
-
-          // Copy: primeras líneas de texto que no sean metadatos
-          const copyLines = lines.filter(l =>
-            !l.match(/^(http|www|\[|Shop Now|Learn More|Buy Now|Download|Sign Up|Get Started|See More|Watch More|Subscribe)/i) &&
-            !l.match(/^\d+:\d+/) &&
-            l.length > 5
-          ).slice(0, 5);
-          adCopy = copyLines.join(' ').trim().substring(0, 600);
-
-          // Extraer CTA link (URL de la landing page)
-          const urlMatch = block.match(/https?:\/\/[^\s\n]+\.(com|co|io|net|org|shop|store)[^\s\n]*/gi);
-          if (urlMatch) {
-            ctaLink = urlMatch.find(u => !u.includes('facebook.com') && !u.includes('fb.com')) || '';
-          }
+          const after = block.substring(sponsoredIdx + 10);
+          const lines = after.split('\n').filter(l => l.trim().length > 5 && !l.match(/^(http|www|\[)/i));
+          adCopy = lines.slice(0, 5).join(' ').trim().substring(0, 400);
         }
 
-        // Extraer imagen
-        const imgEl = document.querySelector(`[href*="${adId}"] img, [id*="${adId}"] img`);
+        // Imagen: buscar img asociada al ad ID
+        const imgEl = document.querySelector(`[id*="${adId}"] img`) ||
+                      document.querySelector(`[data-id="${adId}"] img`);
         const imageUrl = imgEl?.src || '';
 
-        if (pageName && (adCopy || ctaLink)) {
-          results.push({
-            ad_archive_id: adId,
-            page_name: pageName.substring(0, 80),
-            ad_copy: adCopy,
-            start_date: startDate,
-            cta_link: ctaLink,
-            image_url: imageUrl,
-            library_url: `https://www.facebook.com/ads/library/?id=${adId}`
-          });
+        if (pageName && adCopy) {
+          results.push({ ad_archive_id: adId, page_name: pageName, ad_copy: adCopy, start_date: startDate, image_url: imageUrl });
         }
       });
 
-      return results;
+      return results.slice(0, 100);
     });
-
-    console.log(`[FASE 1] ${rawAds.length} anuncios extraídos`);
-
-    // FASE 2 + 3: Para cada anuncio, extraer producto real de la landing page
-    const processedAds = [];
-    for (const ad of rawAds.slice(0, Math.min(rawAds.length, 40))) {
-      let productName = '';
-      let landingDomain = '';
-
-      // Intentar extraer producto de la URL del CTA
-      if (ad.cta_link) {
-        productName = extractProductFromUrl(ad.cta_link);
-        try { landingDomain = new URL(ad.cta_link).hostname.replace('www.',''); } catch(e) {}
-      }
-
-      // Si no tenemos producto de la URL, intentar desde el copy
-      if (!productName) {
-        const copyLines = (ad.ad_copy || '').split(/[.!?\n]/);
-        const firstLine = copyLines[0]?.trim();
-        if (firstLine && firstLine.length > 5 && firstLine.length < 80) {
-          productName = firstLine;
-        } else {
-          productName = ad.page_name;
-        }
-      }
-
-      // Calcular días activos
-      let daysActive = null;
-      if (ad.start_date) {
-        const dateObj = new Date(ad.start_date);
-        if (!isNaN(dateObj.getTime())) {
-          daysActive = Math.floor((Date.now() - dateObj.getTime()) / (1000 * 60 * 60 * 24));
-        }
-        const daysMatch = ad.start_date.match(/(\d+)\s*day/i);
-        const weeksMatch = ad.start_date.match(/(\d+)\s*week/i);
-        const monthsMatch = ad.start_date.match(/(\d+)\s*month/i);
-        if (daysMatch) daysActive = parseInt(daysMatch[1]);
-        else if (weeksMatch) daysActive = parseInt(weeksMatch[1]) * 7;
-        else if (monthsMatch) daysActive = parseInt(monthsMatch[1]) * 30;
-      }
-
-      processedAds.push({
-        ...ad,
-        product_name: productName.substring(0, 80),
-        landing_domain: landingDomain,
-        days_active: daysActive,
-        is_english: isEnglish(ad.ad_copy)
-      });
-    }
-
-    // FASE 4: Agrupar por producto similar
-    const productGroups = {};
-    for (const ad of processedAds) {
-      if (!ad.ad_copy || ad.ad_copy.length < 10) continue;
-      if (countryCode === 'US' && !ad.is_english) continue;
-      if (ad.ad_copy.includes('play.google.com') || ad.ad_copy.includes('apps.apple.com')) continue;
-      if (ad.page_name.toLowerCase() === 'tiktok' || ad.page_name.toLowerCase() === 'tiktok - us') continue;
-      if (min_days_active && ad.days_active !== null && ad.days_active < min_days_active) continue;
-
-      // Agrupar por dominio de landing o por nombre de producto normalizado
-      const groupKey = ad.landing_domain || ad.product_name.toLowerCase().substring(0, 30);
-
-      if (!productGroups[groupKey]) {
-        productGroups[groupKey] = {
-          product_name: ad.product_name,
-          landing_domain: ad.landing_domain,
-          ads: [],
-          best_copy: ad.ad_copy,
-          best_image: ad.image_url,
-          max_days: ad.days_active || 0,
-          library_url: ad.library_url,
-          ad_archive_id: ad.ad_archive_id,
-          page_name: ad.page_name
-        };
-      }
-
-      productGroups[groupKey].ads.push(ad);
-      if ((ad.days_active || 0) > productGroups[groupKey].max_days) {
-        productGroups[groupKey].max_days = ad.days_active;
-        productGroups[groupKey].best_copy = ad.ad_copy;
-        productGroups[groupKey].best_image = ad.image_url;
-        productGroups[groupKey].library_url = ad.library_url;
-        productGroups[groupKey].ad_archive_id = ad.ad_archive_id;
-      }
-    }
-
-    // FASE 5: Calcular score y ordenar
-    const scored = Object.values(productGroups).map(group => {
-      const score = (group.ads.length * 3) + ((group.max_days || 0) * 0.5);
-      return {
-        ad_archive_id: group.ad_archive_id,
-        page_name: group.page_name,
-        product_name: group.product_name,
-        landing_domain: group.landing_domain,
-        ad_copy: group.best_copy,
-        ad_text: group.best_copy,
-        image_url: group.best_image,
-        library_url: group.library_url,
-        days_active: group.max_days,
-        total_ads: group.ads.length,
-        score: Math.round(score),
-        advertiser_count: new Set(group.ads.map(a => a.page_name)).size
-      };
-    })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
 
     await browser.close();
     browser = null;
 
-    console.log(`[RESULTADO] ${scored.length} productos agrupados (de ${rawAds.length} anuncios)`);
+    console.log(`[FASE 1] ${rawAds.length} anuncios extraídos`);
+
+    // Filtrar inglés y calcular días activos
+    const filtered = rawAds.filter(ad => {
+      if (!isEnglish(ad.ad_copy)) return false;
+      if (ad.ad_copy.includes('play.google.com') || ad.ad_copy.includes('apps.apple.com')) return false;
+      if (ad.page_name.toLowerCase() === 'tiktok' || ad.page_name.toLowerCase() === 'tiktok - us') return false;
+      return true;
+    }).map(ad => {
+      let daysActive = null;
+      if (ad.start_date) {
+        const d = new Date(ad.start_date);
+        if (!isNaN(d.getTime())) daysActive = Math.floor((Date.now() - d.getTime()) / 86400000);
+        const dm = ad.start_date.match(/(\d+)\s*day/i);
+        const wm = ad.start_date.match(/(\d+)\s*week/i);
+        const mm = ad.start_date.match(/(\d+)\s*month/i);
+        if (dm) daysActive = parseInt(dm[1]);
+        else if (wm) daysActive = parseInt(wm[1]) * 7;
+        else if (mm) daysActive = parseInt(mm[1]) * 30;
+      }
+      if (min_days_active && daysActive !== null && daysActive < min_days_active) return null;
+      return { ...ad, days_active: daysActive };
+    }).filter(Boolean);
+
+    console.log(`[FILTRO] ${filtered.length} anuncios en inglés y días OK`);
+
+    // FASE 2+3: Claude Vision identifica producto por copy + imagen
+    // Procesamos en paralelo en batches de 5 para no saturar la API
+    const identified = [];
+    const batchSize = 5;
+    for (let i = 0; i < Math.min(filtered.length, 60); i += batchSize) {
+      const batch = filtered.slice(i, i + batchSize);
+      const results = await Promise.all(batch.map(async ad => {
+        const id = await identifyProduct(ad);
+        return { ...ad, product_name: id.product, confidence: id.confidence };
+      }));
+      identified.push(...results);
+      console.log(`[FASE 2] Procesados ${Math.min(i + batchSize, filtered.length)}/${Math.min(filtered.length, 60)}`);
+    }
+
+    // FASE 4: Agrupar por producto (solo si confidence >= 0.5 y no "unknown")
+    const groups = {};
+    for (const ad of identified) {
+      if (!ad.product_name || ad.product_name === 'unknown' || ad.confidence < 0.5) continue;
+      const key = ad.product_name.toLowerCase().trim();
+      if (!groups[key]) {
+        groups[key] = {
+          product_name: ad.product_name,
+          ads: [],
+          advertisers: new Set(),
+          total_days: 0,
+          days_count: 0,
+          best_copy: '',
+          best_image: '',
+          best_days: 0,
+          best_library_url: '',
+          best_archive_id: ''
+        };
+      }
+      groups[key].ads.push(ad);
+      groups[key].advertisers.add(ad.page_name);
+      if (ad.days_active) {
+        groups[key].total_days += ad.days_active;
+        groups[key].days_count++;
+      }
+      if ((ad.days_active || 0) > groups[key].best_days) {
+        groups[key].best_days = ad.days_active || 0;
+        groups[key].best_copy = ad.ad_copy;
+        groups[key].best_image = ad.image_url;
+        groups[key].best_library_url = `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${countryCode}&q=${encodeURIComponent(ad.product_name)}&search_type=keyword_unordered`;
+        groups[key].best_archive_id = ad.ad_archive_id;
+      }
+    }
+
+    // FASE 5: Score y filtro mínimo 3 anunciantes
+    const scored = Object.values(groups)
+      .filter(g => g.advertisers.size >= 2) // mínimo 2 anunciantes distintos
+      .map(g => {
+        const avgDays = g.days_count > 0 ? Math.round(g.total_days / g.days_count) : 0;
+        const score = (g.advertisers.size * 10) + (g.ads.length * 3) + (avgDays * 0.3);
+        return {
+          ad_archive_id: g.best_archive_id,
+          product_name: g.product_name,
+          page_name: g.product_name,
+          ad_copy: g.best_copy,
+          ad_text: g.best_copy,
+          image_url: g.best_image,
+          library_url: g.best_library_url,
+          days_active: g.best_days,
+          avg_days_active: avgDays,
+          total_ads: g.ads.length,
+          advertiser_count: g.advertisers.size,
+          advertisers_list: Array.from(g.advertisers).slice(0, 5),
+          score: Math.round(score)
+        };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+
+    console.log(`[RESULTADO] ${scored.length} productos ganadores (de ${rawAds.length} anuncios)`);
 
     res.json({
       success: true,
       query: { niche, country: countryCode, min_days_active, limit },
       total_found: scored.length,
       ads: scored,
-      search_url: searchUrl
+      debug: { raw: rawAds.length, filtered: filtered.length, identified: identified.length }
     });
 
   } catch (error) {
@@ -293,4 +302,4 @@ app.get('/scrape-ads', async (req, res) => {
   await handleScrape({ country, niche, min_days_active: parseInt(min_days_active), limit: parseInt(limit) }, res);
 });
 
-app.listen(PORT, () => console.log(`Meta Ads Scraper v3.0 en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`Meta Ads Scraper v4.0 en puerto ${PORT}`));

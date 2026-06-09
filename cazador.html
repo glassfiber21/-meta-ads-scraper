@@ -229,18 +229,18 @@ function renderCards(ads){
     const p=pricing(ad,m);
     const rk=i<3?rkcls[i]:'rn';
     const si=i%3;
-    const name=(ad.page_name||'Anunciante');
-    const product=ad.product_name||name;
+    const product=(ad.product_name||ad.page_name||'Producto');
     const copy=ad.ad_copy||'Anuncio activo detectado en Meta Ads Library.';
     const days=parseInt(ad.days_active)||'?';
+    const avgDays=ad.avg_days_active||days;
     const totalAds=ad.total_ads||1;
     const advCount=ad.advertiser_count||1;
-    const domain=ad.landing_domain||'';
-    // URL busca por producto, no por anunciante
+    const advList=(ad.advertisers_list||[]).join(', ');
+    const score=ad.score||0;
     const adUrl=ad.library_url||`https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=US&q=${encodeURIComponent(product)}&search_type=keyword_unordered`;
     const tiktokUrl=`https://www.tiktok.com/search?q=${encodeURIComponent(product)}`;
     const bniche=bundles[niche]||bundles['home products'];
-    const prodShort=product.length>44?product.slice(0,44)+'…':product;
+    const prodShort=product.length>40?product.slice(0,40)+'…':product;
 
     return`<div class="card">
 <div class="ctop">
@@ -249,15 +249,16 @@ function renderCards(ads){
 </div>
 ${ad.image_url?`<img class="cimg" src="${ad.image_url}" alt="" onerror="this.style.display='none'">` :''}
 <div class="cname">${prodShort}</div>
-<div class="cprod">${domain?'🌐 '+domain:'🏷️ '+name.slice(0,30)}</div>
+<div class="cprod">👥 ${advCount} anunciante${advCount>1?'s':''} · 📢 ${totalAds} anuncio${totalAds>1?'s':''}</div>
 <div class="cmets">
   <div class="met"><div class="ml">Coste</div><div class="mc">$${p.cost}</div></div>
   <div class="met"><div class="ml">Venta</div><div class="ms">$${p.sale}</div></div>
   <div class="met"><div class="ml">Ganas</div><div class="mg">$${p.profit}</div></div>
 </div>
-<div class="cstats">⏱️ <span class="dval">${days}d</span> · 📢 <b style="color:#fbbf24">${totalAds} anuncio${totalAds>1?'s':''}</b> · 👤 ${advCount} anunciante${advCount>1?'s':''}</div>
+<div class="cstats">⏱️ Máx <span class="dval">${days}d</span> · Media <b style="color:#e5e5e5">${avgDays}d</b> activo</div>
 <div class="ccopy">${copy}</div>
-<div class="cbundle">
+${advList?`<div class="cbundle"><div class="blbl">👤 ANUNCIANTES DETECTADOS</div><div class="btxt">${advList}</div></div>`:''}
+<div class="cbundle" style="margin-top:0">
   <div class="blbl">📦 PRODUCTO COMPLEMENTARIO</div>
   <div class="btxt">${bniche}</div>
 </div>
