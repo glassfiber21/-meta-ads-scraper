@@ -6,7 +6,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 
 const COUNTRY_CODES = {
   'USA': 'US', 'UK': 'GB', 'US': 'US', 'GB': 'GB', 'ES': 'ES'
@@ -20,7 +20,6 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Detecta si el texto es principalmente en inglés
 function isEnglish(text) {
   if (!text) return false;
   const spanishWords = ['hogar','cocina','muebles','desde','para','con','que','una','sus','los','las','del','por','más','tiene','este','esta','nuestro','nuestra','también','pero','como','todo','nuevo','nueva','sobre','entre','hasta','cuando','donde','porque'];
@@ -29,10 +28,8 @@ function isEnglish(text) {
   return spanishCount < 3;
 }
 
-// Extrae nombre de producto del copy del anuncio
 function extractProductName(copy, pageName) {
   if (!copy) return pageName;
-  // Buscar producto concreto: palabras con mayúscula seguidas de descripción
   const productPatterns = [
     /(?:introducing|meet the|try the|get the|shop the|buy the|discover the)\s+([A-Z][^.!?\n]{5,50})/i,
     /^([A-Z][a-zA-Z\s]{3,40}(?:Pro|Max|Plus|Mini|Ultra|Lite)?)\s*[-–—]/,
@@ -42,7 +39,6 @@ function extractProductName(copy, pageName) {
     const match = copy.match(pattern);
     if (match && match[1] && match[1].length > 5) return match[1].trim().slice(0, 60);
   }
-  // Usar las primeras palabras significativas del copy
   const firstLine = copy.split(/[.!?\n]/)[0].trim();
   if (firstLine.length > 8 && firstLine.length < 80) return firstLine;
   return pageName;
@@ -66,65 +62,35 @@ async function handleScrape(params, res) {
   let browser;
   try {
     browser = await puppeteer.launch({
-  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
-  headless: true,
-  dumpio: true,
-  args: [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--disable-gpu',
-    '--no-first-run',
-    '--no-zygote',
-    '--disable-extensions'
-  ]
-});
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-extensions'
+      ]
+    });
 
-console.log('CHROME ARRANCADO');
+    const page = await browser.newPage();
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    await page.setViewport({ width: 1280, height: 900 });
 
-const page = await browser.newPage();
+    await page.setRequestInterception(true);
+    page.on('request', (req) => {
+      if (['font', 'media'].includes(req.resourceType())) req.abort();
+      else req.continue();
+    });
 
-await page.setUserAgent(
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-);
+    const searchUrl = `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${countryCode}&q=${encodeURIComponent(niche)}&search_type=keyword_unordered&media_type=all&sort_data[mode]=total_impressions&sort_data[direction]=desc`;
+    console.log('[URL]', searchUrl);
 
-await page.setViewport({
-  width: 1280,
-  height: 900
-});
+    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await new Promise(r => setTimeout(r, 6000));
 
-await page.setRequestInterception(true);
-
-page.on('request', (req) => {
-  const type = req.resourceType();
-
-  if (['font', 'media'].includes(type)) {
-    req.abort();
-  } else {
-    req.continue();
-  }
-});
-
-const searchUrl =
-  `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${countryCode}&q=${encodeURIComponent(niche)}&search_type=keyword_unordered&media_type=all&sort_data[mode]=total_impressions&sort_data[direction]=desc`;
-
-console.log('[URL]', searchUrl);
-
-console.log('ANTES DEL GOTO');
-
-await page.goto(searchUrl, {
-  waitUntil: 'domcontentloaded',
-  timeout: 45000
-});
-
-console.log('DESPUÉS DEL GOTO');
-
-await new Promise(r => setTimeout(r, 6000));
-
-const html = await page.content();
-
-console.log('[HTML length]', html.length);
-    // Scroll progresivo para cargar más anuncios
     for (let i = 0; i < 3; i++) {
       await page.evaluate((step, total) => window.scrollTo(0, document.body.scrollHeight * step / total), i + 1, 3);
       await new Promise(r => setTimeout(r, 1500));
@@ -135,8 +101,6 @@ console.log('[HTML length]', html.length);
 
     const ads = await page.evaluate((limitCount) => {
       const results = [];
-
-      // Selectores actualizados para Meta Ads Library 2025
       const selectors = [
         '[data-testid="ad-archive-card"]',
         '._7jvw', '._8njr', '._7jvs',
@@ -150,10 +114,8 @@ console.log('[HTML length]', html.length);
         if (cards.length >= 2) break;
       }
 
-      // Fallback: buscar por texto identificativo de anuncios activos
       if (cards.length < 2) {
         const allDivs = Array.from(document.querySelectorAll('div'));
-        // Buscar contenedores que tengan ID de biblioteca
         const withId = allDivs.filter(div => {
           const text = div.innerText || '';
           return (text.includes('Library ID') || text.includes('Identificador de la biblioteca')) &&
@@ -168,20 +130,16 @@ console.log('[HTML length]', html.length);
           if (text.length < 20) return;
           const lines = text.split('\n').filter(l => l.trim().length > 2);
 
-          // Extraer ID de biblioteca del HTML
-          const idMatch = card.innerHTML.match(/(?:id=|library_id=|"id":")(\d{10,})/);
           const libIdMatch = card.innerHTML.match(/\/ads\/library\/\?id=(\d+)/);
+          const idMatch = card.innerHTML.match(/(?:id=|library_id=|"id":")(\d{10,})/);
           const adId = libIdMatch ? libIdMatch[1] : (idMatch ? idMatch[1] : `${Date.now()}_${index}`);
 
-          // Extraer nombre de página
           const pageNameEl = card.querySelector('[data-testid="ad-archive-card-page-name"], a[href*="facebook.com/"]');
           let pageName = pageNameEl?.innerText?.trim() || '';
           if (!pageName) {
-            // Buscar línea que no sea metadata
             pageName = lines.find(l => l.length > 2 && l.length < 60 && !l.includes(':') && !l.match(/^\d/) && !l.includes('Activo') && !l.includes('Active') && !l.includes('Platform') && !l.includes('Publicidad')) || 'Advertiser';
           }
 
-          // Extraer copy del anuncio (texto del producto)
           const copyLines = lines.filter(l =>
             l.length > 10 &&
             !l.match(/^(Activo|Active|Plataformas|Platforms|Identificador|Library ID|En circulación|Started running|Este anuncio|This ad|Ver detalles|See details|Publicidad|Sponsored)/i) &&
@@ -189,15 +147,12 @@ console.log('[HTML length]', html.length);
           );
           const adCopy = copyLines.slice(0, 4).join(' ').trim().substring(0, 500);
 
-          // Extraer fecha de inicio
-          const dateMatch = text.match(/(?:Started running|En circulación desde el?)\s+(\d+\s+\w+\s+\d{4}|\w+\s+\d+,?\s+\d{4}|\d+\s+\w+\s+\d{4})/i);
+          const dateMatch = text.match(/(?:Started running|En circulación desde el?)\s+(\d+\s+\w+\s+\d{4}|\w+\s+\d+,?\s+\d{4})/i);
           const startDate = dateMatch ? dateMatch[1].trim() : '';
 
-          // Extraer imagen
           const img = card.querySelector('img[src*="fbcdn"], img[src*="facebook"]');
           const imageUrl = img?.src || '';
 
-          // URL de página
           const pageLink = card.querySelector('a[href*="facebook.com/"]:not([href*="ads/library"])');
           const pageUrl = pageLink?.href || '';
 
@@ -222,7 +177,6 @@ console.log('[HTML length]', html.length);
     await browser.close();
     browser = null;
 
-    // Calcular días activos
     const now = new Date();
     const processedAds = ads.map(ad => {
       let daysActive = null;
@@ -239,30 +193,18 @@ console.log('[HTML length]', html.length);
         else if (monthsMatch) daysActive = parseInt(monthsMatch[1]) * 30;
       }
 
-      // Extraer producto concreto del copy
       const productName = extractProductName(ad.ad_copy, ad.page_name);
-
-      return {
-        ...ad,
-        product_name: productName,
-        days_active: daysActive,
-        is_english: isEnglish(ad.ad_copy)
-      };
+      return { ...ad, product_name: productName, days_active: daysActive, is_english: isEnglish(ad.ad_copy) };
     })
     .filter(ad => {
-      // Filtrar anuncios sin contenido útil
       if (!ad.ad_copy || ad.ad_copy.length < 10) return false;
-      // Para USA, priorizar inglés
       if (countryCode === 'US' && !ad.is_english) return false;
-      // Filtro de días activos
-      if (min_days_active && ad.days_active !== null) {
-        return ad.days_active >= min_days_active;
-      }
+      if (min_days_active && ad.days_active !== null) return ad.days_active >= min_days_active;
       return true;
     })
     .slice(0, limit);
 
-    console.log(`[RESULTADO] ${processedAds.length} anuncios encontrados (de ${ads.length} totales)`);
+    console.log(`[RESULTADO] ${processedAds.length} anuncios (de ${ads.length} totales)`);
 
     res.json({
       success: true,
@@ -279,7 +221,6 @@ console.log('[HTML length]', html.length);
   }
 }
 
-// POST /scrape-ads
 app.post('/scrape-ads', async (req, res) => {
   if (!req.body.niche) return res.status(400).json({ error: 'El parámetro niche es obligatorio' });
   await handleScrape({
@@ -289,7 +230,6 @@ app.post('/scrape-ads', async (req, res) => {
   }, res);
 });
 
-// GET /scrape-ads
 app.get('/scrape-ads', async (req, res) => {
   const { country = 'US', niche = '', min_days_active = 30, limit = 10 } = req.query;
   if (!niche) return res.status(400).json({ error: 'El parámetro niche es obligatorio' });
@@ -300,67 +240,6 @@ app.get('/scrape-ads', async (req, res) => {
   }, res);
 });
 
-app.get('/chrome-test', async (req, res) => {
-  let browser;
-
-  try {
-
-    console.log('=== CHROME TEST INICIADO ===');
-
-    browser = await puppeteer.launch({
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-      headless: true,
-      dumpio: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu'
-      ]
-    });
-
-    console.log('=== CHROME ARRANCADO ===');
-
-    const page = await browser.newPage();
-
-   console.log('ANTES DEL GOTO');
-
-console.log('ANTES DEL GOTO');
-
-await page.goto(searchUrl, {
-  waitUntil: 'domcontentloaded',
-  timeout: 45000
-});
-
-console.log('DESPUÉS DEL GOTO');
-
-console.log('DESPUÉS DEL GOTO');
-
-    const title = await page.title();
-
-    await browser.close();
-
-    res.json({
-      success: true,
-      title
-    });
-
-  } catch (error) {
-
-    console.error('CHROME TEST ERROR:', error);
-
-    if (browser) {
-      try {
-        await browser.close();
-      } catch(e) {}
-    }
-
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
 app.listen(PORT, () => {
   console.log(`Meta Ads Scraper v2.0 corriendo en puerto ${PORT}`);
 });
