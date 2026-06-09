@@ -78,6 +78,9 @@ async function handleScrape(params, res) {
     const page = await browser.newPage();
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
     await page.setViewport({ width: 1280, height: 900 });
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'en-US,en;q=0.9'
+    });
 
     await page.setRequestInterception(true);
     page.on('request', (req) => {
@@ -118,8 +121,8 @@ async function handleScrape(params, res) {
         const allDivs = Array.from(document.querySelectorAll('div'));
         const withId = allDivs.filter(div => {
           const text = div.innerText || '';
-          return (text.includes('Library ID') || text.includes('Identificador de la biblioteca')) &&
-                 (text.includes('Started running') || text.includes('En circulación desde'));
+          return (text.includes('Library ID') || text.includes('Identificador de la biblioteca') || text.includes('资料库编号') || text.includes('广告库编号')) &&
+                 (text.includes('Started running') || text.includes('En circulación desde') || text.includes('开始投放') || text.includes('начало'));
         });
         cards = withId.slice(0, limitCount);
       }
@@ -152,7 +155,7 @@ async function handleScrape(params, res) {
           );
           const adCopy = copyLines.slice(0, 4).join(' ').trim().substring(0, 500);
 
-          const dateMatch = text.match(/(?:Started running|En circulación desde el?)\s+(\d+\s+\w+\s+\d{4}|\w+\s+\d+,?\s+\d{4})/i);
+          const dateMatch = text.match(/(?:Started running|En circulación desde el?|开始投放|начало показа)[:\s]*(\d+\s+\w+\s+\d{4}|\w+\s+\d+,?\s+\d{4}|\d{4}年\d+月\d+日)/i);
           const startDate = dateMatch ? dateMatch[1].trim() : '';
 
           const img = card.querySelector('img[src*="fbcdn"], img[src*="facebook"]');
