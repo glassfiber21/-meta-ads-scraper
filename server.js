@@ -263,6 +263,59 @@ app.get('/scrape-ads', async (req, res) => {
   }, res);
 });
 
+app.get('/chrome-test', async (req, res) => {
+  let browser;
+
+  try {
+
+    console.log('=== CHROME TEST INICIADO ===');
+
+    browser = await puppeteer.launch({
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+      headless: true,
+      dumpio: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu'
+      ]
+    });
+
+    console.log('=== CHROME ARRANCADO ===');
+
+    const page = await browser.newPage();
+
+    await page.goto('https://example.com', {
+      waitUntil: 'networkidle2',
+      timeout: 30000
+    });
+
+    const title = await page.title();
+
+    await browser.close();
+
+    res.json({
+      success: true,
+      title
+    });
+
+  } catch (error) {
+
+    console.error('CHROME TEST ERROR:', error);
+
+    if (browser) {
+      try {
+        await browser.close();
+      } catch(e) {}
+    }
+
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Meta Ads Scraper v2.0 corriendo en puerto ${PORT}`);
 });
