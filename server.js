@@ -132,8 +132,7 @@ async function handleScrape(params, res) {
           pageName = pageName.replace(/\nSponsored$/, '').trim();
           
           // Extract ad copy (lines after "Sponsored\n")
-          const sponsoredIdx = block.indexOf('Sponsored
-');
+          const sponsoredIdx = block.indexOf('Sponsored\n');
           let adCopy = '';
           if (sponsoredIdx !== -1) {
             const afterSponsored = block.substring(sponsoredIdx + 10);
