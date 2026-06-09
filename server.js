@@ -66,27 +66,64 @@ async function handleScrape(params, res) {
   let browser;
   try {
     browser = await puppeteer.launch({
-      headless: 'new',
-      args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu','--no-first-run','--no-zygote','--single-process','--disable-extensions']
-    });
+  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
+  headless: true,
+  dumpio: true,
+  args: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--no-first-run',
+    '--no-zygote',
+    '--disable-extensions'
+  ]
+});
 
-    const page = await browser.newPage();
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-    await page.setViewport({ width: 1280, height: 900 });
+console.log('CHROME ARRANCADO');
 
-    await page.setRequestInterception(true);
-    page.on('request', (req) => {
-      if (['font','media'].includes(req.resourceType())) req.abort();
-      else req.continue();
-    });
+const page = await browser.newPage();
 
-    // Buscar en inglés para mercado USA
-    const searchUrl = `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${countryCode}&q=${encodeURIComponent(niche)}&search_type=keyword_unordered&media_type=all&sort_data[mode]=total_impressions&sort_data[direction]=desc`;
-    console.log('[URL]', searchUrl);
+await page.setUserAgent(
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+);
 
-    await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 45000 });
-    await new Promise(r => setTimeout(r, 6000));
+await page.setViewport({
+  width: 1280,
+  height: 900
+});
 
+await page.setRequestInterception(true);
+
+page.on('request', (req) => {
+  const type = req.resourceType();
+
+  if (['font', 'media'].includes(type)) {
+    req.abort();
+  } else {
+    req.continue();
+  }
+});
+
+const searchUrl =
+  `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${countryCode}&q=${encodeURIComponent(niche)}&search_type=keyword_unordered&media_type=all&sort_data[mode]=total_impressions&sort_data[direction]=desc`;
+
+console.log('[URL]', searchUrl);
+
+console.log('ANTES DEL GOTO');
+
+await page.goto(searchUrl, {
+  waitUntil: 'domcontentloaded',
+  timeout: 45000
+});
+
+console.log('DESPUÉS DEL GOTO');
+
+await new Promise(r => setTimeout(r, 6000));
+
+const html = await page.content();
+
+console.log('[HTML length]', html.length);
     // Scroll progresivo para cargar más anuncios
     for (let i = 0; i < 3; i++) {
       await page.evaluate((step, total) => window.scrollTo(0, document.body.scrollHeight * step / total), i + 1, 3);
