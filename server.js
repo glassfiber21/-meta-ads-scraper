@@ -189,6 +189,11 @@ async function handleScrape(params, res) {
     .filter(ad => {
       if (!ad.ad_copy || ad.ad_copy.length < 10) return false;
       if (countryCode === 'US' && !ad.is_english) return false;
+      // Excluir grandes apps y plataformas que no son productos físicos
+      const name = (ad.page_name || '').toLowerCase();
+      const copy = (ad.ad_copy || '').toLowerCase();
+      const excluded = ['tiktok','amazon','google play','play.google','facebook','instagram','youtube','netflix','spotify','uber','airbnb','booking.com'];
+      if (excluded.some(e => name.includes(e) || copy.includes('play.google') || copy.includes('app store'))) return false;
       if (min_days_active && ad.days_active !== null) return ad.days_active >= min_days_active;
       return true;
     })
