@@ -286,10 +286,14 @@ app.get('/chrome-test', async (req, res) => {
 
     const page = await browser.newPage();
 
-    await page.goto('https://example.com', {
-      waitUntil: 'networkidle2',
-      timeout: 30000
-    });
+   console.log('ANTES DEL GOTO');
+
+await page.goto(searchUrl, {
+  waitUntil: 'domcontentloaded',
+  timeout: 45000
+});
+
+console.log('DESPUÉS DEL GOTO');
 
     const title = await page.title();
 
