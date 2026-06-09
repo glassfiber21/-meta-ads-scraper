@@ -288,10 +288,14 @@ app.get('/chrome-test', async (req, res) => {
 
    console.log('ANTES DEL GOTO');
 
+console.log('ANTES DEL GOTO');
+
 await page.goto(searchUrl, {
   waitUntil: 'domcontentloaded',
   timeout: 45000
 });
+
+console.log('DESPUÉS DEL GOTO');
 
 console.log('DESPUÉS DEL GOTO');
 
