@@ -233,10 +233,13 @@ function renderCards(ads){
     const product=ad.product_name||name;
     const copy=ad.ad_copy||'Anuncio activo detectado en Meta Ads Library.';
     const days=parseInt(ad.days_active)||'?';
-    const adUrl=ad.library_url||`https://www.facebook.com/ads/library/?q=${encodeURIComponent(name)}&active_status=active&ad_type=all&country=US`;
+    const totalAds=ad.total_ads||1;
+    const advCount=ad.advertiser_count||1;
+    const domain=ad.landing_domain||'';
+    // URL busca por producto, no por anunciante
+    const adUrl=ad.library_url||`https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=US&q=${encodeURIComponent(product)}&search_type=keyword_unordered`;
     const tiktokUrl=`https://www.tiktok.com/search?q=${encodeURIComponent(product)}`;
-    const bniche=bundles[niche]||bundles['home decor'];
-    const nameShort=name.length>26?name.slice(0,26)+'…':name;
+    const bniche=bundles[niche]||bundles['home products'];
     const prodShort=product.length>44?product.slice(0,44)+'…':product;
 
     return`<div class="card">
@@ -245,21 +248,21 @@ function renderCards(ads){
   <div class="spill ${stcls[si]}">${stlbl[si]}</div>
 </div>
 ${ad.image_url?`<img class="cimg" src="${ad.image_url}" alt="" onerror="this.style.display='none'">` :''}
-<div class="cname">${nameShort}</div>
-<div class="cprod">🏷️ ${prodShort}</div>
+<div class="cname">${prodShort}</div>
+<div class="cprod">${domain?'🌐 '+domain:'🏷️ '+name.slice(0,30)}</div>
 <div class="cmets">
   <div class="met"><div class="ml">Coste</div><div class="mc">$${p.cost}</div></div>
   <div class="met"><div class="ml">Venta</div><div class="ms">$${p.sale}</div></div>
   <div class="met"><div class="ml">Ganas</div><div class="mg">$${p.profit}</div></div>
 </div>
-<div class="cstats">⏱️ <span class="dval">${days}d</span>&nbsp;activo · est.&nbsp;<b style="color:#e5e5e5">${p.perDay}/día</b></div>
+<div class="cstats">⏱️ <span class="dval">${days}d</span> · 📢 <b style="color:#fbbf24">${totalAds} anuncio${totalAds>1?'s':''}</b> · 👤 ${advCount} anunciante${advCount>1?'s':''}</div>
 <div class="ccopy">${copy}</div>
 <div class="cbundle">
   <div class="blbl">📦 PRODUCTO COMPLEMENTARIO</div>
   <div class="btxt">${bniche}</div>
 </div>
 <div class="cacts">
-  <button class="blaunch" onclick="alert('Producto lanzado: ${product.replace(/'/g,'').replace(/"/g,'').slice(0,50)}')">🚀 Lanzar en mi tienda online</button>
+  <button class="blaunch" onclick="alert('Lanzar: ${product.replace(/'/g,'').replace(/"/g,'').slice(0,50)}')">🚀 Lanzar en mi tienda online</button>
   <div class="brow">
     <a class="bmeta" href="${adUrl}" target="_blank" rel="noopener">📘 Ver en Meta</a>
     <a class="btt" href="${tiktokUrl}" target="_blank" rel="noopener">🎵 TikTok</a>
