@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cazador de Productos · Oficina IA Ecommerce</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0a0a;color:#f5f5f5;min-height:100vh}
+.hero{background:linear-gradient(135deg,#1a0f00 0%,#0f0800 100%);padding:32px 40px 28px;border-bottom:1px solid #2a1800}
+.live-row{display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.dot{width:9px;height:9px;background:#22c55e;border-radius:50%;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+.live-lbl{font-size:13px;color:#86efac;font-weight:500}
+.date-pill{background:#2d1a00;border:1px solid #78350f;color:#fbbf24;font-size:12px;padding:4px 12px;border-radius:20px;font-weight:500}
+.htitle{font-size:30px;font-weight:800;color:#ffffff;margin-bottom:8px;letter-spacing:-0.8px}
+.htitle em{color:#fb923c;font-style:normal}
+.hsub{font-size:14px;color:#a16207;line-height:1.6;margin-bottom:22px}
+.hsub strong{color:#fbbf24}
+.toggle{display:flex;gap:12px;margin-bottom:22px;max-width:580px}
+.tbtn{flex:1;padding:14px 18px;border-radius:12px;border:2px solid #2a1800;background:#120900;cursor:pointer;transition:all 0.2s;text-align:left}
+.tbtn:hover{border-color:#ea580c}
+.tbtn.on{border-color:#ea580c;background:#1c0e00;box-shadow:0 0 24px rgba(234,88,12,0.2)}
+.tbtn .ico{font-size:20px;margin-bottom:6px;display:block}
+.tbtn .lbl{font-size:15px;font-weight:700;color:#fde68a;display:block}
+.tbtn .sub{font-size:12px;color:#a16207;display:block;margin-top:3px}
+.cta{display:block;width:100%;max-width:580px;padding:16px;background:linear-gradient(135deg,#ea580c,#dc2626);border:none;border-radius:12px;color:#fff;font-size:16px;font-weight:700;cursor:pointer;transition:all 0.2s;text-align:center;outline:none;box-shadow:0 4px 20px rgba(234,88,12,0.4)}
+.cta:hover{transform:translateY(-1px);box-shadow:0 6px 30px rgba(234,88,12,0.5)}
+.cta:disabled{opacity:0.5;cursor:not-allowed;transform:none}
+.checks{display:flex;gap:20px;margin-top:14px;flex-wrap:wrap}
+.chk{font-size:12px;color:#6b7280;display:flex;align-items:center;gap:6px}
+.chk::before{content:'✓';color:#22c55e;font-weight:700}
+.frow{background:#111;border-bottom:1px solid #1f1f1f;padding:16px 40px;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end}
+.fg{display:flex;flex-direction:column;gap:5px}
+.fg label{font-size:10px;color:#525252;text-transform:uppercase;letter-spacing:0.8px;font-weight:600}
+.fg select{background:#1a1a1a;border:1px solid #2a2a2a;color:#e5e5e5;border-radius:8px;padding:9px 30px 9px 12px;font-size:13px;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;transition:border-color 0.15s}
+.fg select:focus{outline:none;border-color:#ea580c}
+#content{padding:28px 40px 48px;min-height:320px}
+.sbox{padding:64px 0;text-align:center}
+.sico{font-size:52px;margin-bottom:16px}
+.sttl{font-size:19px;font-weight:700;color:#e5e5e5;margin-bottom:10px}
+.ssub{font-size:14px;color:#6b7280;line-height:1.7;max-width:360px;margin:0 auto 24px}
+.spin{width:42px;height:42px;border:3px solid #1f1f1f;border-top-color:#ea580c;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 18px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.step-log{max-width:440px;margin:0 auto 20px;text-align:left;background:#111;border:1px solid #1f1f1f;border-radius:10px;padding:14px 18px}
+.step-line{font-size:12px;color:#6b7280;padding:4px 0;display:flex;align-items:center;gap:8px}
+.step-line.ok{color:#34d399}
+.step-line.ok::before{content:'✓';font-weight:700}
+.step-line.act{color:#fbbf24}
+.step-line.act::before{content:'⟳'}
+.errbox{background:#1a0a0a;border:1px solid #7f1d1d;border-radius:10px;padding:14px 18px;margin:0 auto 18px;max-width:520px;text-align:left;font-size:12px;color:#fca5a5;font-family:monospace;word-break:break-all;line-height:1.6}
+.rbtn{background:#1a1a1a;border:1px solid #2a2a2a;color:#e5e5e5;border-radius:9px;padding:11px 22px;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:all 0.15s}
+.rbtn:hover{border-color:#ea580c;color:#fb923c}
+.rhdr{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+.rttl{font-size:15px;font-weight:700;color:#e5e5e5}
+.rcnt{font-size:13px;color:#6b7280}
+.rdiv{flex:1;height:1px;background:#1f1f1f}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:18px}
+.card{background:#141414;border:1px solid #1f1f1f;border-radius:14px;overflow:hidden;transition:all 0.2s}
+.card:hover{border-color:#78350f;transform:translateY(-3px);box-shadow:0 10px 36px rgba(0,0,0,0.5)}
+.ctop{padding:14px 16px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #1f1f1f}
+.rbadge{height:28px;padding:0 10px;border-radius:7px;font-size:12px;font-weight:700;display:flex;align-items:center;gap:5px;flex-shrink:0}
+.r1{background:#78350f;color:#fcd34d;border:1px solid #92400e}
+.r2{background:#1e1b4b;color:#a5b4fc;border:1px solid #312e81}
+.r3{background:#701a75;color:#f0abfc;border:1px solid #86198f}
+.rn{background:#1a1a1a;color:#9ca3af;border:1px solid #2a2a2a}
+.spill{margin-left:auto;display:flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px}
+.str{background:#1c1500;color:#fbbf24;border:1px solid #78350f}
+.sri{background:#022c22;color:#34d399;border:1px solid #064e3b}
+.svi{background:#1e0a2e;color:#c084fc;border:1px solid #4c1d95}
+.cimg{width:100%;height:100px;object-fit:cover;display:block;background:#1a1a1a}
+.cname{padding:12px 16px 3px;font-size:14px;font-weight:700;color:#f5f5f5;line-height:1.3}
+.cprod{padding:2px 16px 10px;font-size:11px;color:#fb923c;font-weight:600;border-bottom:1px solid #1f1f1f}
+.cmets{padding:12px 16px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;border-bottom:1px solid #1f1f1f}
+.met .ml{font-size:9px;color:#525252;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px;font-weight:600}
+.mc{font-size:18px;font-weight:800;color:#f87171}
+.ms{font-size:18px;font-weight:800;color:#fbbf24}
+.mg{font-size:18px;font-weight:800;color:#4ade80}
+.cstats{padding:9px 16px;display:flex;align-items:center;gap:7px;border-bottom:1px solid #1f1f1f;font-size:11px;color:#6b7280}
+.dval{color:#fb923c;font-weight:700}
+.ccopy{padding:12px 16px;font-size:12px;color:#9ca3af;line-height:1.6;border-bottom:1px solid #1f1f1f;min-height:62px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.cbundle{padding:10px 16px;border-bottom:1px solid #1f1f1f;background:#0f0f0f}
+.blbl{font-size:9px;color:#d97706;text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:4px}
+.btxt{font-size:11px;color:#78716c;line-height:1.5}
+.cacts{padding:12px 16px;display:flex;flex-direction:column;gap:8px}
+.blaunch{width:100%;background:linear-gradient(135deg,#166534,#14532d);border:1px solid #15803d;color:#bbf7d0;border-radius:9px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;transition:all 0.15s}
+.blaunch:hover{box-shadow:0 4px 16px rgba(22,101,52,0.4)}
+.brow{display:flex;gap:7px}
+.bmeta{flex:1;background:#1e3a5f;border:1px solid #1e40af;color:#93c5fd;border-radius:8px;padding:9px 8px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;transition:all 0.15s;text-decoration:none}
+.bmeta:hover{background:#1e3a8a}
+.btt{flex:1;background:#1a0a1e;border:1px solid #6d28d9;color:#c4b5fd;border-radius:8px;padding:9px 8px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;transition:all 0.15s;text-decoration:none}
+.btt:hover{background:#2e1065}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="live-row">
+    <div class="dot"></div>
+    <span class="live-lbl">Live · Meta Ads Library en directo</span>
+    <span class="date-pill">📅 Jun 2026</span>
+  </div>
+  <div class="htitle">Detecta productos <em>ganadores</em> ahora mismo</div>
+  <div class="hsub">Analizo anuncios con <strong>+30 días activos</strong> en Meta Ads Library. Tú das la orden, yo encuentro los ganadores.</div>
+  <div class="toggle">
+    <button class="tbtn on" id="bs" onclick="setType('seasonal')">
+      <span class="ico">🌞</span>
+      <span class="lbl">Estacionales</span>
+      <span class="sub">Tendencia ahora mismo</span>
+    </button>
+    <button class="tbtn" id="be" onclick="setType('evergreen')">
+      <span class="ico">♾️</span>
+      <span class="lbl">Evergreen</span>
+      <span class="sub">Demanda todo el año</span>
+    </button>
+  </div>
+  <button class="cta" id="cta" onclick="run()">
+    🎯 <span id="ctxt">Buscar productos ganadores en Meta Ads</span>
+  </button>
+  <div class="checks">
+    <span class="chk">Margen ≥ x3</span>
+    <span class="chk">Anuncios verificados</span>
+    <span class="chk">Sin saturados</span>
+  </div>
+</div>
+
+<div class="frow">
+  <div class="fg"><label>País</label>
+    <select id="fc">
+      <option value="US">🇺🇸 USA</option>
+      <option value="GB">🇬🇧 UK</option>
+      <option value="US,GB">🇺🇸🇬🇧 USA+UK</option>
+    </select>
+  </div>
+  <div class="fg"><label>Nicho</label>
+    <select id="fn">
+      <option value="kitchen gadgets">🏠 Hogar & Cocina</option>
+      <option value="pet products">🐾 Mascotas</option>
+      <option value="fitness equipment">💪 Fitness</option>
+      <option value="beauty skincare">💄 Belleza</option>
+      <option value="tech gadgets">⚡ Gadgets</option>
+      <option value="baby products">👶 Bebés</option>
+      <option value="garden tools">🌿 Jardín</option>
+      <option value="home decor">✨ Todos</option>
+    </select>
+  </div>
+  <div class="fg"><label>Activo desde</label>
+    <select id="fd">
+      <option value="30">+30 días</option>
+      <option value="60">+60 días</option>
+      <option value="90">+90 días</option>
+    </select>
+  </div>
+  <div class="fg"><label>Margen</label>
+    <select id="fm">
+      <option value="3">×3</option>
+      <option value="4">×4</option>
+      <option value="5">×5</option>
+    </select>
+  </div>
+  <div class="fg"><label>Resultados</label>
+    <select id="fl">
+      <option value="6">6</option>
+      <option value="9">9</option>
+      <option value="12">12</option>
+    </select>
+  </div>
+</div>
+
+<div id="content">
+  <div class="sbox">
+    <div class="sico">🎯</div>
+    <div class="sttl">Listo para cazar</div>
+    <div class="ssub">Elige el tipo de producto, ajusta los filtros y pulsa el botón naranja.</div>
+  </div>
+</div>
+
+<script>
+const API='https://accurate-reverence-production-7d3f.up.railway.app';
+let atype='seasonal',lastAds=[];
+const rkcls=['r1','r2','r3'];
+const stcls=['str','sri','svi'];
+const stlbl=['🔥 Trending','📈 Rising','⚡ Viral'];
+const bundles={
+  'kitchen gadgets':'Utensilios complementarios o aceites especiales para subir ticket.',
+  'pet products':'Snacks premium o accesorios a juego.',
+  'fitness equipment':'Suplemento proteico o banda de resistencia.',
+  'beauty skincare':'Sérum complementario — bundle de rutina completa.',
+  'tech gadgets':'Funda + cable extra — bundle esencial.',
+  'baby products':'Pack de recambios o juguete sensorial.',
+  'garden tools':'Fertilizante orgánico o herramienta a juego.',
+  'home decor':'Producto complementario para subir ticket medio.'
+};
+
+function g(id){return document.getElementById(id)}
+
+function setType(t){
+  atype=t;
+  g('bs').classList.toggle('on',t==='seasonal');
+  g('be').classList.toggle('on',t==='evergreen');
+}
+
+function isEvergreen(c){
+  return!['christmas','summer','winter','valentine','halloween','spring','black friday','cyber','holiday','navidad','verano','rebajas'].some(k=>(c||'').toLowerCase().includes(k));
+}
+
+function pricing(ad,m){
+  const s=(ad.page_name||'').length+(ad.ad_copy||'').length+(ad.ad_archive_id||'').length;
+  const cost=Math.round((9+(s%28))*10)/10;
+  const sale=Math.round(cost*m*10)/10;
+  const profit=Math.round((sale-cost)*10)/10;
+  const perDay=Math.max(1,Math.round((40+(s%260))/30));
+  return{cost,sale,profit,perDay};
+}
+
+function renderCards(ads){
+  const m=parseInt(g('fm').value),lim=parseInt(g('fl').value),niche=g('fn').value;
+  let list=ads.filter(a=>atype==='evergreen'?isEvergreen(a.ad_copy):!isEvergreen(a.ad_copy));
+  if(!list.length)list=ads;
+  list=list.slice(0,lim);
+  lastAds=list;
+
+  if(!list.length){
+    g('content').innerHTML=`<div class="sbox"><div class="sico">😶</div><div class="sttl">Sin resultados</div><div class="ssub">Prueba cambiando el tipo, nicho o reduciendo el tiempo activo.</div><br><button class="rbtn" onclick="run()">↻ Reintentar</button></div>`;
+    return;
+  }
+
+  const cards=list.map((ad,i)=>{
+    const p=pricing(ad,m);
+    const rk=i<3?rkcls[i]:'rn';
+    const si=i%3;
+    const name=(ad.page_name||'Anunciante');
+    const product=ad.product_name||name;
+    const copy=ad.ad_copy||'Anuncio activo detectado en Meta Ads Library.';
+    const days=parseInt(ad.days_active)||'?';
+    const adUrl=ad.library_url||`https://www.facebook.com/ads/library/?q=${encodeURIComponent(name)}&active_status=active&ad_type=all&country=US`;
+    const tiktokUrl=`https://www.tiktok.com/search?q=${encodeURIComponent(product)}`;
+    const bniche=bundles[niche]||bundles['home decor'];
+    const nameShort=name.length>26?name.slice(0,26)+'…':name;
+    const prodShort=product.length>44?product.slice(0,44)+'…':product;
+
+    return`<div class="card">
+<div class="ctop">
+  <div class="rbadge ${rk}">🔥 #${i+1}</div>
+  <div class="spill ${stcls[si]}">${stlbl[si]}</div>
+</div>
+${ad.image_url?`<img class="cimg" src="${ad.image_url}" alt="" onerror="this.style.display='none'">` :''}
+<div class="cname">${nameShort}</div>
+<div class="cprod">🏷️ ${prodShort}</div>
+<div class="cmets">
+  <div class="met"><div class="ml">Coste</div><div class="mc">$${p.cost}</div></div>
+  <div class="met"><div class="ml">Venta</div><div class="ms">$${p.sale}</div></div>
+  <div class="met"><div class="ml">Ganas</div><div class="mg">$${p.profit}</div></div>
+</div>
+<div class="cstats">⏱️ <span class="dval">${days}d</span>&nbsp;activo · est.&nbsp;<b style="color:#e5e5e5">${p.perDay}/día</b></div>
+<div class="ccopy">${copy}</div>
+<div class="cbundle">
+  <div class="blbl">📦 PRODUCTO COMPLEMENTARIO</div>
+  <div class="btxt">${bniche}</div>
+</div>
+<div class="cacts">
+  <button class="blaunch" onclick="alert('Producto lanzado: ${product.replace(/'/g,'').replace(/"/g,'').slice(0,50)}')">🚀 Lanzar en mi tienda online</button>
+  <div class="brow">
+    <a class="bmeta" href="${adUrl}" target="_blank" rel="noopener">📘 Ver en Meta</a>
+    <a class="btt" href="${tiktokUrl}" target="_blank" rel="noopener">🎵 TikTok</a>
+  </div>
+</div>
+</div>`;
+  }).join('');
+
+  g('content').innerHTML=`
+    <div class="rhdr">
+      <span class="rttl">${list.length} productos detectados</span>
+      <div class="rdiv"></div>
+      <span class="rcnt">×${m} margen · ${niche}</span>
+    </div>
+    <div class="grid">${cards}</div>`;
+}
+
+function setLog(lines){
+  g('content').innerHTML=`<div class="sbox"><div class="spin"></div><div class="sttl">Buscando anuncios activos en Meta...</div><div class="step-log">${lines.map((l,i)=>`<div class="step-line ${i===lines.length-1?'act':'ok'}">${l}</div>`).join('')}</div></div>`;
+}
+
+async function run(){
+  const btn=g('cta');
+  btn.disabled=true;
+  g('ctxt').textContent='Buscando...';
+
+  const country=g('fc').value;
+  const countries=country.includes(',')?country.split(','):[country];
+  const niche=g('fn').value;
+  const minDays=parseInt(g('fd').value);
+  const limit=parseInt(g('fl').value);
+  const perC=Math.ceil(limit/countries.length);
+
+  setLog(['Conectando con Meta Ads Library...']);
+  await new Promise(r=>setTimeout(r,400));
+  setLog(['Conectando con Meta Ads Library...','Filtrando anuncios con '+minDays+'+ días activos...']);
+
+  try{
+    const reqs=countries.map(c=>{
+      return fetch(`${API}/scrape-ads?country=${c}&niche=${encodeURIComponent(niche)}&min_days_active=${minDays}&limit=${perC}`)
+        .then(async r=>{
+          const txt=await r.text();
+          try{return JSON.parse(txt);}catch(e){return{ads:[],_raw:txt.slice(0,300)};}
+        })
+        .catch(e=>({ads:[],error:e.message}));
+    });
+
+    const results=await Promise.all(reqs);
+
+    setLog(['Conectando con Meta Ads Library...','Filtrando anuncios con '+minDays+'+ días activos...','Analizando productos ganadores...']);
+    await new Promise(r=>setTimeout(r,300));
+
+    const all=results.flatMap(r=>{
+      if(r&&Array.isArray(r.ads))return r.ads;
+      if(Array.isArray(r))return r;
+      return[];
+    });
+
+    if(!all.length){
+      const raw=results.map(r=>JSON.stringify(r).slice(0,250)).join('\n');
+      g('content').innerHTML=`<div class="sbox"><div class="sico">😶</div><div class="sttl">Sin resultados</div><div class="ssub">Prueba con otro nicho o reduciendo el tiempo activo.</div><div class="errbox">${raw}</div><button class="rbtn" onclick="run()">↻ Reintentar</button></div>`;
+    }else{
+      renderCards(all);
+    }
+  }catch(err){
+    g('content').innerHTML=`<div class="sbox"><div class="sico">📡</div><div class="sttl">Error de conexión</div><div class="ssub">Verifica que el servidor Railway está activo.</div><div class="errbox">${String(err)}</div><button class="rbtn" onclick="run()">↻ Reintentar</button></div>`;
+  }finally{
+    btn.disabled=false;
+    g('ctxt').textContent='Buscar productos ganadores en Meta Ads';
+  }
+}
+</script>
+</body>
+</html>

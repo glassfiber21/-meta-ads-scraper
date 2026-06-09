@@ -3,11 +3,7 @@ const cors = require('cors');
 const puppeteer = require('puppeteer');
 
 const app = express();
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 8080;
@@ -247,6 +243,16 @@ app.get('/scrape-ads', async (req, res) => {
     limit: parseInt(limit)
   }, res);
 });
+
+const path = require('path');
+
+// Servir el cazador de productos
+app.get('/cazador', (req, res) => {
+  res.sendFile(path.join(__dirname, 'cazador.html'));
+});
+
+// Servir archivos estáticos
+app.use(express.static(__dirname));
 
 app.listen(PORT, () => {
   console.log(`Meta Ads Scraper v2.0 corriendo en puerto ${PORT}`);
