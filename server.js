@@ -75,14 +75,18 @@ function normalizeProduct(name) {
 async function scrapeTikTok(hashtags, videosPerHashtag = 50) {
   console.log(`[TIKTOK] Scraping ${hashtags.length} hashtags × ${videosPerHashtag} vídeos`);
   
+  // Convertir hashtags a searchQueries (formato que funciona con el actor)
+  const searchQueries = hashtags.map(h => h.replace(/^#/, ''));
+  
   const input = {
-    hashtags: hashtags,
+    searchQueries: searchQueries,
+    searchSection: '/video',
+    videoSearchDateFilter: 'PAST_MONTH',
+    videoSearchSorting: 'MOST_RELEVANT',
     resultsPerPage: videosPerHashtag,
-    maxProfilesPerQuery: 1,
     shouldDownloadVideos: false,
     shouldDownloadCovers: false,
     proxyCountryCode: 'US',
-    searchSection: '/video',
     maxRequestRetries: 3
   };
 
