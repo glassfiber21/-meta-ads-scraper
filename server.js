@@ -87,15 +87,17 @@ async function scrapeTikTok(hashtags, videosPerHashtag = 50) {
   };
 
   try {
-    // Lanzar run en Apify
-    const runRes = await fetch('https://api.apify.com/v2/acts/clockworks~tiktok-scraper/runs', {
+    // Lanzar run en Apify — input va directo en body, memory como query param
+    const runRes = await fetch('https://api.apify.com/v2/acts/clockworks~tiktok-scraper/runs?memory=4096', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${APIFY_API_KEY}`
       },
-      body: JSON.stringify({ input, memory: 4096 })
+      body: JSON.stringify(input)
     });
+    
+    console.log('[APIFY] HTTP Status:', runRes.status);
     
     const runData = await runRes.json();
     const runId = runData.data?.id;
