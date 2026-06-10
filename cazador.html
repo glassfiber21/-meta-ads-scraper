@@ -177,7 +177,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 <script>
 const API='https://accurate-reverence-production-7d3f.up.railway.app';
-let atype='seasonal',lastAds=[];
+let atype='seasonal',lastAds=[],activeSource='tiktok';
 const rkcls=['r1','r2','r3'];
 const stcls=['str','sri','svi'];
 const stlbl=['🔥 Trending','📈 Rising','⚡ Viral'];
@@ -194,6 +194,14 @@ const bundles={
 
 function g(id){return document.getElementById(id)}
 
+function setSource(s){
+  activeSource=s;
+  document.getElementById('src-tiktok').style.borderColor=s==='tiktok'?'#ea580c':'#2a1800';
+  document.getElementById('src-tiktok').style.background=s==='tiktok'?'#1c0e00':'#120900';
+  document.getElementById('src-meta').style.borderColor=s==='meta'?'#ea580c':'#2a1800';
+  document.getElementById('src-meta').style.background=s==='meta'?'#1c0e00':'#120900';
+  document.getElementById('ctxt').textContent=s==='tiktok'?'Buscar productos virales en TikTok':'Buscar productos ganadores en Meta Ads';
+}
 function setType(t){
   atype=t;
   g('bs').classList.toggle('on',t==='seasonal');
@@ -297,19 +305,24 @@ async function run(){
   const limit=parseInt(g('fl').value);
   const perC=Math.ceil(limit/countries.length);
 
-  setLog(['Conectando con Meta Ads Library...']);
+  const isTikTok = activeSource === 'tiktok';
+  setLog([isTikTok ? '🎵 Conectando con TikTok via Apify...' : '📘 Conectando con Meta Ads Library...']);
   await new Promise(r=>setTimeout(r,400));
-  setLog(['Conectando con Meta Ads Library...','Filtrando anuncios con '+minDays+'+ días activos...']);
+  setLog([
+    isTikTok ? '🎵 Conectando con TikTok via Apify...' : '📘 Conectando con Meta Ads Library...',
+    isTikTok ? '🔍 Analizando vídeos virales con IA...' : '🔍 Filtrando anuncios con '+minDays+'+ días activos...'
+  ]);
 
   try{
-    const reqs=countries.map(c=>{
-      return fetch(`${API}/scrape-ads?country=${c}&niche=${encodeURIComponent(niche)}&min_days_active=${minDays}&limit=${perC}`)
-        .then(async r=>{
-          const txt=await r.text();
-          try{return JSON.parse(txt);}catch(e){return{ads:[],_raw:txt.slice(0,300)};}
-        })
-        .catch(e=>({ads:[],error:e.message}));
-    });
+    const endpoint = isTikTok
+      ? `${API}/tiktok-products?niche=${encodeURIComponent(niche)}&limit=${limit}`
+      : `${API}/scrape-ads?country=${g('fc').value}&niche=${encodeURIComponent(niche)}&min_days_active=${minDays}&limit=${limit}`;
+
+    const reqs=[
+      fetch(endpoint)
+        .then(async r=>{const txt=await r.text();try{return JSON.parse(txt);}catch(e){return{ads:[],_raw:txt.slice(0,300)};}})
+        .catch(e=>({ads:[],error:e.message}))
+    ];
 
     const results=await Promise.all(reqs);
 
