@@ -2,7 +2,6 @@ const express = require('express');
 const cors = require('cors');
 const puppeteer = require('puppeteer');
 const path = require('path');
-const https = require('https');
 
 const app = express();
 app.use(cors({ origin: '*', methods: ['GET','POST','OPTIONS'], allowedHeaders: ['Content-Type'] }));
@@ -11,7 +10,10 @@ app.use(express.json());
 const PORT = process.env.PORT || 8080;
 const COUNTRY_CODES = { 'USA':'US','UK':'GB','US':'US','GB':'GB','ES':'ES' };
 
-app.get('/', (req, res) => res.json({ status: 'Meta Ads Scraper activo', version: '4.0', endpoints: ['/scrape-ads','/health'] }));
+// CACHÉ en memoria: ad_id → product_name
+const productCache = new Map();
+
+app.get('/', (req, res) => res.json({ status: 'Meta Ads Scraper activo', version: '4.1', endpoints: ['/scrape-ads','/health'], cache_size: productCache.size }));
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 app.get('/cazador', (req, res) => res.sendFile(path.join(__dirname, 'cazador.html')));
 app.use(express.static(__dirname));
@@ -22,78 +24,145 @@ function isEnglish(text) {
   return spanish.filter(w => text.toLowerCase().includes(w)).length < 3;
 }
 
-// Descarga imagen y la convierte a base64
-async function imageToBase64(url) {
-  if (!url || !url.startsWith('http')) return null;
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => resolve(null), 5000);
-    const req = https.get(url, (res) => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => {
-        clearTimeout(timeout);
-        const buf = Buffer.concat(chunks);
-        const b64 = buf.toString('base64');
-        const type = res.headers['content-type'] || 'image/jpeg';
-        resolve({ data: b64, type });
-      });
-      res.on('error', () => { clearTimeout(timeout); resolve(null); });
-    });
-    req.on('error', () => { clearTimeout(timeout); resolve(null); });
-  });
+// NORMALIZACIÓN de nombres de producto
+function normalizeProduct(name) {
+  if (!name || name === 'unknown') return null;
+  let n = name.toLowerCase().trim();
+  
+  // Normalizar variantes comunes
+  const aliases = {
+    'ice cream machine': 'ice cream maker',
+    'ice cream maker machine': 'ice cream maker',
+    'mini ice cream maker': 'ice cream maker',
+    'portable ice cream maker': 'ice cream maker',
+    'diy ice cream maker': 'ice cream maker',
+    'air fryer basket': 'air fryer',
+    'air fryer accessories': 'air fryer',
+    'mini air fryer': 'air fryer',
+    'smart air fryer': 'air fryer',
+    'kitchen gadget': 'kitchen gadgets',
+    'kitchen tool': 'kitchen gadgets',
+    'cooking gadget': 'kitchen gadgets',
+    'cooking tool': 'kitchen gadgets',
+    'food prep tool': 'kitchen gadgets',
+    'kitchen accessory': 'kitchen gadgets',
+    'galaxy light projector': 'galaxy projector',
+    'star projector light': 'galaxy projector',
+    'star light projector': 'galaxy projector',
+    'led galaxy projector': 'galaxy projector',
+    'robot vacuum mop': 'robot vacuum',
+    'robot vacuum cleaner': 'robot vacuum',
+    'robotic vacuum': 'robot vacuum',
+    'portable blender bottle': 'portable blender',
+    'mini blender': 'portable blender',
+    'travel blender': 'portable blender',
+    'snack spinner tray': 'snack spinner',
+    'rotating snack tray': 'snack spinner',
+    'lazy susan snack': 'snack spinner',
+    'electric wine opener': 'wine opener',
+    'automatic wine opener': 'wine opener',
+    'cordless wine opener': 'wine opener',
+  };
+  
+  // Buscar alias exacto
+  if (aliases[n]) return aliases[n];
+  
+  // Buscar alias parcial
+  for (const [alias, canonical] of Object.entries(aliases)) {
+    if (n.includes(alias) || alias.includes(n)) return canonical;
+  }
+  
+  // Capitalizar primera letra de cada palabra
+  return n.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
-// Claude Vision: identifica producto de copy + imagen
-async function identifyProduct(ad) {
-  try {
-    const messages = [];
-    const content = [];
+// CLAUDE: identifica productos de TODOS los anuncios en UNA sola llamada
+async function identifyProductsBatch(ads) {
+  // Separar los que ya están en caché
+  const toProcess = ads.filter(ad => !productCache.has(ad.ad_archive_id));
+  const cached = ads.filter(ad => productCache.has(ad.ad_archive_id));
+  
+  console.log(`[CLAUDE] Caché: ${cached.length} | Nuevos: ${toProcess.length}`);
+  
+  // Resultados de caché
+  const results = {};
+  for (const ad of cached) {
+    results[ad.ad_archive_id] = productCache.get(ad.ad_archive_id);
+  }
+  
+  if (toProcess.length === 0) return results;
+  
+  // Un solo prompt con todos los anuncios nuevos
+  const adsJson = toProcess.map(ad => ({
+    id: ad.ad_archive_id,
+    copy: (ad.ad_copy || '').substring(0, 200)
+  }));
+  
+  const prompt = `You are analyzing Facebook ads to identify physical products being sold.
 
-    // Añadir imagen si existe
-    if (ad.image_url) {
-      const img = await imageToBase64(ad.image_url);
-      if (img) {
-        content.push({
-          type: 'image',
-          source: { type: 'base64', media_type: img.type, data: img.data }
-        });
-      }
-    }
+Here are ${adsJson.length} ads in JSON format:
+${JSON.stringify(adsJson, null, 2)}
 
-    content.push({
-      type: 'text',
-      text: `This is a Facebook ad. Ad copy: "${(ad.ad_copy || '').substring(0, 300)}"
-
-Identify the PHYSICAL PRODUCT being sold. Reply ONLY with valid JSON:
-{"product":"<product name in English, 2-4 words max>","confidence":<0.0-1.0>}
+For each ad, identify the physical product being advertised.
 
 Rules:
-- Product must be a physical item (not a service, app, or brand)
-- Use generic name (e.g. "Ice Cream Maker" not "Ninja Creami")
-- If no clear physical product, use {"product":"unknown","confidence":0}
-- NO explanation, ONLY the JSON`
-    });
+- Use generic English names (2-4 words max): "Ice Cream Maker", "Air Fryer", "Galaxy Projector"
+- If it's a service, app, subscription, or unclear → use "unknown"
+- Group similar products under the same name
+- Be consistent: always use the same name for the same product type
 
-    messages.push({ role: 'user', content });
+Reply ONLY with a JSON array, no explanation:
+[{"id":"<ad_id>","product":"<product name>","confidence":<0.0-1.0>}]`;
 
+  try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY || '',
+        'anthropic-version': '2023-06-01'
+      },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 100,
-        messages
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2000,
+        messages: [{ role: 'user', content: prompt }]
       })
     });
 
     const data = await response.json();
+    
+    if (data.error) {
+      console.error('[CLAUDE ERROR]', data.error.message);
+      // Fallback: usar copy como nombre de producto
+      for (const ad of toProcess) {
+        const fallback = (ad.ad_copy || '').split(/[.!?\n]/)[0].trim().substring(0, 50) || 'unknown';
+        results[ad.ad_archive_id] = { product: fallback, confidence: 0.3 };
+        productCache.set(ad.ad_archive_id, results[ad.ad_archive_id]);
+      }
+      return results;
+    }
+
     const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
     const clean = text.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(clean);
-    return parsed;
+
+    for (const item of parsed) {
+      const r = { product: item.product || 'unknown', confidence: item.confidence || 0 };
+      results[item.id] = r;
+      productCache.set(item.id, r); // guardar en caché
+    }
+
+    console.log(`[CLAUDE] ${parsed.length} productos identificados`);
   } catch(e) {
-    return { product: 'unknown', confidence: 0 };
+    console.error('[CLAUDE PARSE ERROR]', e.message);
+    // Fallback
+    for (const ad of toProcess) {
+      const r = { product: 'unknown', confidence: 0 };
+      results[ad.ad_archive_id] = r;
+    }
   }
+
+  return results;
 }
 
 async function handleScrape(params, res) {
@@ -101,7 +170,7 @@ async function handleScrape(params, res) {
   if (!niche) return res.status(400).json({ error: 'niche es obligatorio' });
 
   const countryCode = COUNTRY_CODES[country.toUpperCase()] || 'US';
-  console.log(`[v4] nicho="${niche}" | ${countryCode} | días≥${min_days_active} | límite=${limit}`);
+  console.log(`[v4.1] nicho="${niche}" | ${countryCode} | días≥${min_days_active} | límite=${limit}`);
 
   let browser;
   try {
@@ -121,17 +190,16 @@ async function handleScrape(params, res) {
       else req.continue();
     });
 
-    // FASE 1: Scraping de 100 anuncios
     const searchUrl = `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${countryCode}&q=${encodeURIComponent(niche)}&search_type=keyword_unordered&media_type=all&sort_data[mode]=total_impressions&sort_data[direction]=desc`;
     console.log('[URL]', searchUrl);
 
     await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 45000 });
-    await new Promise(r => setTimeout(r, 6000));
+    await new Promise(r => setTimeout(r, 8000));
 
-    // Scroll agresivo para cargar más anuncios
-    for (let i = 0; i < 6; i++) {
-      await page.evaluate(s => window.scrollTo(0, document.body.scrollHeight * s / 6), i + 1);
-      await new Promise(r => setTimeout(r, 1200));
+    // Scroll para cargar ~100 anuncios
+    for (let i = 0; i < 10; i++) {
+      await page.evaluate(s => window.scrollTo(0, document.body.scrollHeight * s / 10), i + 1);
+      await new Promise(r => setTimeout(r, 1000));
     }
 
     const rawAds = await page.evaluate(() => {
@@ -139,7 +207,7 @@ async function handleScrape(params, res) {
       const fullText = document.body.innerText;
       const blocks = fullText.split(/(?=Active\nLibrary ID:)/);
 
-      blocks.forEach((block, index) => {
+      blocks.forEach((block) => {
         if (!block.includes('Library ID:')) return;
         const idMatch = block.match(/Library ID:\s*(\d+)/);
         if (!idMatch) return;
@@ -159,7 +227,6 @@ async function handleScrape(params, res) {
           adCopy = lines.slice(0, 5).join(' ').trim().substring(0, 400);
         }
 
-        // Imagen: buscar img asociada al ad ID
         const imgEl = document.querySelector(`[id*="${adId}"] img`) ||
                       document.querySelector(`[data-id="${adId}"] img`);
         const imageUrl = imgEl?.src || '';
@@ -175,15 +242,14 @@ async function handleScrape(params, res) {
     await browser.close();
     browser = null;
 
-    console.log(`[FASE 1] ${rawAds.length} anuncios extraídos`);
+    console.log(`[SCRAPER] ${rawAds.length} anuncios extraídos`);
 
-    // Filtrar inglés y calcular días activos
-    const filtered = rawAds.filter(ad => {
-      if (!isEnglish(ad.ad_copy)) return false;
-      if (ad.ad_copy.includes('play.google.com') || ad.ad_copy.includes('apps.apple.com')) return false;
-      if (ad.page_name.toLowerCase() === 'tiktok' || ad.page_name.toLowerCase() === 'tiktok - us') return false;
-      return true;
-    }).map(ad => {
+    // Filtrar y calcular días activos
+    const filtered = rawAds.map(ad => {
+      if (!isEnglish(ad.ad_copy)) return null;
+      if (ad.ad_copy.includes('play.google.com') || ad.ad_copy.includes('apps.apple.com')) return null;
+      if (['tiktok','tiktok - us','facebook','instagram'].includes(ad.page_name.toLowerCase())) return null;
+
       let daysActive = null;
       if (ad.start_date) {
         const d = new Date(ad.start_date);
@@ -199,30 +265,24 @@ async function handleScrape(params, res) {
       return { ...ad, days_active: daysActive };
     }).filter(Boolean);
 
-    console.log(`[FILTRO] ${filtered.length} anuncios en inglés y días OK`);
+    console.log(`[FILTRO] ${filtered.length} anuncios válidos`);
 
-    // FASE 2+3: Claude Vision identifica producto por copy + imagen
-    // Procesamos en paralelo en batches de 5 para no saturar la API
-    const identified = [];
-    const batchSize = 5;
-    for (let i = 0; i < Math.min(filtered.length, 60); i += batchSize) {
-      const batch = filtered.slice(i, i + batchSize);
-      const results = await Promise.all(batch.map(async ad => {
-        const id = await identifyProduct(ad);
-        return { ...ad, product_name: id.product, confidence: id.confidence };
-      }));
-      identified.push(...results);
-      console.log(`[FASE 2] Procesados ${Math.min(i + batchSize, filtered.length)}/${Math.min(filtered.length, 60)}`);
-    }
+    // CLAUDE: un solo batch para todos
+    const productMap = await identifyProductsBatch(filtered);
 
-    // FASE 4: Agrupar por producto (solo si confidence >= 0.5 y no "unknown")
+    // AGRUPACIÓN con normalización
     const groups = {};
-    for (const ad of identified) {
-      if (!ad.product_name || ad.product_name === 'unknown' || ad.confidence < 0.5) continue;
-      const key = ad.product_name.toLowerCase().trim();
+    for (const ad of filtered) {
+      const raw = productMap[ad.ad_archive_id];
+      if (!raw || raw.confidence < 0.5) continue;
+
+      const normalized = normalizeProduct(raw.product);
+      if (!normalized) continue;
+
+      const key = normalized.toLowerCase();
       if (!groups[key]) {
         groups[key] = {
-          product_name: ad.product_name,
+          product_name: normalized,
           ads: [],
           advertisers: new Set(),
           total_days: 0,
@@ -230,39 +290,36 @@ async function handleScrape(params, res) {
           best_copy: '',
           best_image: '',
           best_days: 0,
-          best_library_url: '',
-          best_archive_id: ''
+          library_url: ''
         };
       }
+
       groups[key].ads.push(ad);
       groups[key].advertisers.add(ad.page_name);
       if (ad.days_active) {
         groups[key].total_days += ad.days_active;
         groups[key].days_count++;
       }
-      if ((ad.days_active || 0) > groups[key].best_days) {
+      if ((ad.days_active || 0) >= groups[key].best_days) {
         groups[key].best_days = ad.days_active || 0;
         groups[key].best_copy = ad.ad_copy;
         groups[key].best_image = ad.image_url;
-        groups[key].best_library_url = `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${countryCode}&q=${encodeURIComponent(ad.product_name)}&search_type=keyword_unordered`;
-        groups[key].best_archive_id = ad.ad_archive_id;
+        groups[key].library_url = `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=${countryCode}&q=${encodeURIComponent(normalized)}&search_type=keyword_unordered`;
       }
     }
 
-    // FASE 5: Score y filtro mínimo 3 anunciantes
+    // SCORE y ordenar
     const scored = Object.values(groups)
-      .filter(g => g.advertisers.size >= 2) // mínimo 2 anunciantes distintos
       .map(g => {
         const avgDays = g.days_count > 0 ? Math.round(g.total_days / g.days_count) : 0;
         const score = (g.advertisers.size * 10) + (g.ads.length * 3) + (avgDays * 0.3);
         return {
-          ad_archive_id: g.best_archive_id,
           product_name: g.product_name,
           page_name: g.product_name,
           ad_copy: g.best_copy,
           ad_text: g.best_copy,
           image_url: g.best_image,
-          library_url: g.best_library_url,
+          library_url: g.library_url,
           days_active: g.best_days,
           avg_days_active: avgDays,
           total_ads: g.ads.length,
@@ -274,14 +331,14 @@ async function handleScrape(params, res) {
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
 
-    console.log(`[RESULTADO] ${scored.length} productos ganadores (de ${rawAds.length} anuncios)`);
+    console.log(`[RESULTADO] ${scored.length} productos (${productCache.size} en caché)`);
 
     res.json({
       success: true,
       query: { niche, country: countryCode, min_days_active, limit },
       total_found: scored.length,
       ads: scored,
-      debug: { raw: rawAds.length, filtered: filtered.length, identified: identified.length }
+      debug: { raw: rawAds.length, filtered: filtered.length, cache_size: productCache.size }
     });
 
   } catch (error) {
@@ -302,4 +359,4 @@ app.get('/scrape-ads', async (req, res) => {
   await handleScrape({ country, niche, min_days_active: parseInt(min_days_active), limit: parseInt(limit) }, res);
 });
 
-app.listen(PORT, () => console.log(`Meta Ads Scraper v4.0 en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`Meta Ads Scraper v4.1 en puerto ${PORT}`));
