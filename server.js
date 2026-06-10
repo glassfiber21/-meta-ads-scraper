@@ -75,15 +75,13 @@ function normalizeProduct(name) {
 async function scrapeTikTok(hashtags, videosPerHashtag = 50) {
   console.log(`[TIKTOK] Scraping ${hashtags.length} hashtags × ${videosPerHashtag} vídeos`);
   
-  // Convertir hashtags a searchQueries (formato que funciona con el actor)
-  const searchQueries = hashtags.map(h => h.replace(/^#/, ''));
-  
+  // TEST MÍNIMO: una sola query para verificar que el actor devuelve resultados
   const input = {
-    searchQueries: searchQueries,
+    searchQueries: ['TIKTOK MADE ME BUY IT'],
     searchSection: '/video',
     videoSearchDateFilter: 'PAST_MONTH',
     videoSearchSorting: 'MOST_RELEVANT',
-    resultsPerPage: videosPerHashtag,
+    resultsPerPage: 5,
     shouldDownloadVideos: false,
     shouldDownloadCovers: false,
     proxyCountryCode: 'US',
@@ -104,7 +102,12 @@ async function scrapeTikTok(hashtags, videosPerHashtag = 50) {
     console.log('[APIFY] HTTP Status:', runRes.status);
     
     const runData = await runRes.json();
+    console.log('================ APIFY RUN DATA ================');
+    console.log(JSON.stringify(runData, null, 2));
+    console.log('================================================');
     const runId = runData.data?.id;
+    console.log('RUN ID:', runId);
+    console.log('DEFAULT DATASET:', runData.data?.defaultDatasetId);
     if (!runId) throw new Error('No se pudo iniciar el run de Apify');
     
     console.log(`[APIFY] Run iniciado: ${runId}`);
@@ -131,7 +134,11 @@ async function scrapeTikTok(hashtags, videosPerHashtag = 50) {
       headers: { 'Authorization': `Bearer ${APIFY_API_KEY}` }
     });
     const items = await itemsRes.json();
-    console.log(`[APIFY] ${items.length} vídeos obtenidos`);
+    console.log('ITEMS LENGTH:', items.length);
+    if (items.length > 0) {
+      console.log('FIRST ITEM:');
+      console.log(JSON.stringify(items[0], null, 2));
+    }
     return items;
     
   } catch(e) {
