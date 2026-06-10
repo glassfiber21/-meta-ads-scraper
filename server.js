@@ -15,6 +15,10 @@ const COUNTRY_CODES = { 'USA':'US','UK':'GB','US':'US','GB':'GB','ES':'ES' };
 // Caché en memoria
 const productCache = new Map();
 
+console.log('APIFY KEY EXISTS:', !!process.env.APIFY_API_KEY);
+console.log('APIFY KEY LENGTH:', process.env.APIFY_API_KEY?.length || 0);
+console.log('ANTHROPIC KEY EXISTS:', !!process.env.ANTHROPIC_API_KEY);
+
 app.get('/', (req, res) => res.json({ 
   status: 'Cazador de Productos activo', 
   version: '5.0',
