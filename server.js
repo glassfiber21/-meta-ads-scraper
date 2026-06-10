@@ -82,7 +82,7 @@ async function scrapeTikTok(hashtags, videosPerHashtag = 50) {
     shouldDownloadVideos: false,
     shouldDownloadCovers: false,
     proxyCountryCode: 'US',
-    searchSection: 'video',
+    searchSection: '/video',
     maxRequestRetries: 3
   };
 
