@@ -92,7 +92,7 @@ async function scrapeTikTok(hashtags, videosPerHashtag = 50) {
   console.log(`[TIKTOK] Scraping ${hashtags.length} hashtags × ${videosPerHashtag} vídeos`);
   
   const queries = TEST_MODE
-    ? ['KITCHEN GADGETS']
+    ? ['tiktokmademebuyit', 'amazonfinds', 'amazonmusthaves', 'amazonfavorites', 'viralproducts']
     : ['TIKTOK MADE ME BUY IT', 'AMAZON FINDS', 'HOME MUST HAVES', 'KITCHEN GADGETS', 'LIFE HACK PRODUCTS'];
   const perPage = TEST_MODE ? 20 : 100;
 
@@ -275,6 +275,7 @@ function groupAndScore(videos, productMap) {
     g.videos.push(video);
     g.creators.add(video.authorMeta?.name || video.author || '');
     if (video.hashtags) video.hashtags.forEach(h => { const tag = typeof h === 'string' ? h : (h?.name || h?.title || String(h)); g.hashtags_seen.add(tag.toLowerCase()); });
+    if (video.searchQuery) g.search_queries_seen.add(video.searchQuery.toLowerCase());
     g.total_likes += parseInt(video.diggCount || video.likes || 0);
     g.total_views += parseInt(video.playCount || video.views || 0);
     g.total_comments += parseInt(video.commentCount || video.comments || 0);
@@ -292,11 +293,18 @@ function groupAndScore(videos, productMap) {
     if (p.product !== 'unknown') console.log(`${p.product} | ${p.confidence}`);
   });
 
-  // Log top 20 grupos antes de scoring
+  // Log resumen final
   const allGroups = Object.values(groups).sort((a,b) => b.videos.length - a.videos.length);
-  console.log('=== TOP 20 GRUPOS ===');
-  allGroups.slice(0, 20).forEach(g => {
-    console.log(`${g.product_name} -> ${g.videos.length} vídeos -> ${g.creators.size} creadores`);
+  const totalIdentified = Object.values(productMap).filter(p => p.product !== 'unknown').length;
+  console.log('=== RESUMEN ===');
+  console.log(`Vídeos analizados: ${videos.length}`);
+  console.log(`Productos identificados por Claude: ${totalIdentified}`);
+  console.log(`Productos agrupados: ${allGroups.length}`);
+  console.log('=== TOP 10 PRODUCTOS ===');
+  allGroups.slice(0, 10).forEach(g => {
+    const queries = Array.from(g.search_queries_seen).join(', ');
+    const hashtags = Array.from(g.hashtags_seen).slice(0, 3).join(', ');
+    console.log(`${g.product_name} | ${g.videos.length} vídeos | ${g.creators.size} creadores | queries: ${queries} | hashtags: ${hashtags}`);
   });
   // Distribución
   const dist = {1:0, 2:0, 3:0, 5:0, 10:0};
@@ -307,7 +315,7 @@ function groupAndScore(videos, productMap) {
     else if (g.videos.length >= 2) dist[2]++;
     else dist[1]++;
   });
-  console.log('DISTRIBUCIÓN: 1v:', dist[1], '| 2v:', dist[2], '| 3v:', dist[3], '| 5v:', dist[5], '| 10v+:', dist[10]);
+  console.log(`DISTRIBUCIÓN → 1v: ${dist[1]} | 2v: ${dist[2]} | 3v: ${dist[3]} | 5v+: ${dist[5]} | 10v+: ${dist[10]}`);
 
   // Score = apariciones×40% + vistas×30% + likes×20% + comentarios×10%
   return Object.values(groups)
@@ -337,6 +345,9 @@ function groupAndScore(videos, productMap) {
         total_comments: g.total_comments,
         cover_url: g.best_cover,
         tiktok_search_url: `https://www.tiktok.com/search?q=${encodeURIComponent(g.product_name)}`,
+        search_queries: Array.from(g.search_queries_seen),
+        hashtag_count: g.hashtags_seen.size,
+        query_count: g.search_queries_seen.size,
         // Campos para compatibilidad con cazador.html
         page_name: g.product_name,
         ad_copy: `${g.videos.length} vídeos virales · ${g.total_views.toLocaleString()} views · ${g.creators.size} creadores`,
