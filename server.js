@@ -79,13 +79,18 @@ function normalizeProduct(name) {
 async function scrapeTikTok(hashtags, videosPerHashtag = 50) {
   console.log(`[TIKTOK] Scraping ${hashtags.length} hashtags × ${videosPerHashtag} vídeos`);
   
-  // TEST MÍNIMO: una sola query para verificar que el actor devuelve resultados
   const input = {
-    searchQueries: ['TIKTOK MADE ME BUY IT'],
+    searchQueries: [
+      'TIKTOK MADE ME BUY IT',
+      'AMAZON FINDS',
+      'HOME MUST HAVES',
+      'KITCHEN GADGETS',
+      'LIFE HACK PRODUCTS'
+    ],
     searchSection: '/video',
     videoSearchDateFilter: 'PAST_MONTH',
     videoSearchSorting: 'MOST_RELEVANT',
-    resultsPerPage: 5,
+    resultsPerPage: 100,
     shouldDownloadVideos: false,
     shouldDownloadCovers: false,
     proxyCountryCode: 'US',
@@ -228,6 +233,7 @@ function groupAndScore(videos, productMap) {
   console.log('CLAUDE RAW RESPONSE:');
   console.log(JSON.stringify(productMap, null, 2));
   console.log('TOTAL VIDEOS TO PROCESS:', videos.length);
+  console.log('PRODUCT MAP SAMPLE:', JSON.stringify(Object.entries(productMap).slice(0, 5)));
 
   for (const video of videos) {
     const raw = productMap[video.id];
@@ -271,7 +277,8 @@ function groupAndScore(videos, productMap) {
   // Score = apariciones×40% + vistas×30% + likes×20% + comentarios×10%
   return Object.values(groups)
     .filter(g => {
-      if (g.videos.length < 1) { console.log('DESCARTADO GRUPO:', g.product_name, '→ solo', g.videos.length, 'vídeo(s)'); return false; }
+      console.log(`GRUPO: ${g.product_name} → ${g.videos.length} vídeos → ${g.advertisers ? g.advertisers.size : g.creators?.size || 0} creadores`);
+      if (g.videos.length < 1) { console.log('DESCARTADO:', g.product_name, '→ 0 vídeos'); return false; }
       return true;
     }) // mínimo 1 vídeo para test
     .map(g => {
@@ -297,7 +304,9 @@ function groupAndScore(videos, productMap) {
         tiktok_search_url: `https://www.tiktok.com/search?q=${encodeURIComponent(g.product_name)}`,
         // Campos para compatibilidad con cazador.html
         page_name: g.product_name,
-        ad_copy: `${g.video_count} vídeos virales · ${g.total_views.toLocaleString()} views · ${g.creators.size} creadores`,
+        ad_copy: `${g.videos.length} vídeos virales · ${g.total_views.toLocaleString()} views · ${g.creators.size} creadores`,
+        video_count_display: g.videos.length,
+        creator_count_display: g.creators.size,
         image_url: g.best_cover,
         days_active: null,
         total_ads: g.video_count,
