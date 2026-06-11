@@ -225,9 +225,15 @@ Reply ONLY with JSON array, no explanation:
 function groupAndScore(videos, productMap) {
   const groups = {};
   
+  console.log('CLAUDE RAW RESPONSE:');
+  console.log(JSON.stringify(productMap, null, 2));
+  console.log('TOTAL VIDEOS TO PROCESS:', videos.length);
+
   for (const video of videos) {
     const raw = productMap[video.id];
-    if (!raw || raw.confidence < 0.6 || raw.product === 'unknown') continue;
+    if (!raw) { console.log('DESCARTADO:', video.id, '→ no en productMap'); continue; }
+    if (raw.product === 'unknown') { console.log('DESCARTADO:', video.id, '→ unknown'); continue; }
+    if (raw.confidence < 0.6) { console.log('DESCARTADO:', video.id, '→ confianza baja:', raw.confidence, 'producto:', raw.product); continue; }
     
     const normalized = normalizeProduct(raw.product);
     if (!normalized) continue;
@@ -264,7 +270,10 @@ function groupAndScore(videos, productMap) {
 
   // Score = apariciones×40% + vistas×30% + likes×20% + comentarios×10%
   return Object.values(groups)
-    .filter(g => g.videos.length >= 2) // mínimo 2 vídeos
+    .filter(g => {
+      if (g.videos.length < 1) { console.log('DESCARTADO GRUPO:', g.product_name, '→ solo', g.videos.length, 'vídeo(s)'); return false; }
+      return true;
+    }) // mínimo 1 vídeo para test
     .map(g => {
       const maxViews = 1000000;
       const maxLikes = 100000;
