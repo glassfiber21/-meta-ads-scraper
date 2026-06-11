@@ -229,7 +229,8 @@ Reply ONLY with JSON array, no explanation:
         results[item.id] = r;
         productCache.set(item.id, r);
       }
-      console.log(`[CLAUDE] Batch ${i/batchSize + 1}: ${parsed.length} productos identificados`);
+      const unknown_count = parsed.filter(p => p.product === 'unknown').length;
+    console.log(`[CLAUDE] Batch ${Math.floor(i/batchSize) + 1}: ${parsed.length} identificados | ${unknown_count} unknown | ${parsed.length - unknown_count} productos`);
     } catch(e) {
       console.error('[CLAUDE PARSE ERROR]', e.message);
     }
@@ -241,10 +242,7 @@ Reply ONLY with JSON array, no explanation:
 function groupAndScore(videos, productMap) {
   const groups = {};
   
-  console.log('CLAUDE RAW RESPONSE:');
-  console.log(JSON.stringify(productMap, null, 2));
   console.log('TOTAL VIDEOS TO PROCESS:', videos.length);
-  console.log('PRODUCT MAP SAMPLE:', JSON.stringify(Object.entries(productMap).slice(0, 5)));
 
   for (const video of videos) {
     const raw = productMap[video.id];
@@ -284,6 +282,23 @@ function groupAndScore(videos, productMap) {
       g.best_video_url = video.webVideoUrl;
     }
   }
+
+  // Log top 20 grupos antes de scoring
+  const allGroups = Object.values(groups).sort((a,b) => b.videos.length - a.videos.length);
+  console.log('=== TOP 20 GRUPOS ===');
+  allGroups.slice(0, 20).forEach(g => {
+    console.log(`${g.product_name} -> ${g.videos.length} vídeos -> ${g.creators.size} creadores`);
+  });
+  // Distribución
+  const dist = {1:0, 2:0, 3:0, 5:0, 10:0};
+  allGroups.forEach(g => {
+    if (g.videos.length >= 10) dist[10]++;
+    else if (g.videos.length >= 5) dist[5]++;
+    else if (g.videos.length >= 3) dist[3]++;
+    else if (g.videos.length >= 2) dist[2]++;
+    else dist[1]++;
+  });
+  console.log('DISTRIBUCIÓN: 1v:', dist[1], '| 2v:', dist[2], '| 3v:', dist[3], '| 5v:', dist[5], '| 10v+:', dist[10]);
 
   // Score = apariciones×40% + vistas×30% + likes×20% + comentarios×10%
   return Object.values(groups)
