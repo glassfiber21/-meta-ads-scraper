@@ -263,6 +263,7 @@ function groupAndScore(videos, productMap) {
         videos: [],
         creators: new Set(),
         hashtags_seen: new Set(),
+        search_queries_seen: new Set(),
         total_likes: 0,
         total_views: 0,
         total_comments: 0,
@@ -395,6 +396,9 @@ app.get('/tiktok-products', async (req, res) => {
       const products = groupAndScore(videos, productMap);
       console.log(`[JOB ${jobId}] Productos agrupados: ${products.length}`);
       
+      console.log('PRODUCTS LENGTH:', products.length);
+      if (products.length > 0) console.log('FIRST PRODUCT:', JSON.stringify(products[0], null, 2));
+
       const result = {
         success: true, source: 'tiktok', niche,
         total_videos: videos.length,
