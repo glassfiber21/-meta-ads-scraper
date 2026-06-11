@@ -8,6 +8,17 @@ app.use(cors({ origin: '*', methods: ['GET','POST','OPTIONS'], allowedHeaders: [
 app.use(express.json());
 
 const PORT = process.env.PORT || 8080;
+
+// Job queue para búsquedas asíncronas
+const jobs = new Map();
+function createJob() {
+  const id = Date.now().toString(36) + Math.random().toString(36).substr(2);
+  jobs.set(id, { status: 'running', progress: '', result: null, error: null, created: Date.now() });
+  return id;
+}
+function updateJob(id, data) { if (jobs.has(id)) jobs.set(id, { ...jobs.get(id), ...data }); }
+// Limpiar jobs viejos cada 30 min
+setInterval(() => { const now = Date.now(); jobs.forEach((v,k) => { if (now - v.created > 1800000) jobs.delete(k); }); }, 600000);
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const APIFY_API_KEY = process.env.APIFY_API_KEY || '';
 const COUNTRY_CODES = { 'USA':'US','UK':'GB','US':'US','GB':'GB','ES':'ES' };
@@ -319,41 +330,60 @@ function groupAndScore(videos, productMap) {
     .sort((a, b) => b.score - a.score);
 }
 
-// ENDPOINT PRINCIPAL: TikTok → Claude → Top productos
+// ENDPOINT PRINCIPAL: lanza job asíncrono y devuelve job_id inmediatamente
 app.get('/tiktok-products', async (req, res) => {
   const { niche = 'general', limit = 10 } = req.query;
   const hashtags = HASHTAGS[niche] || HASHTAGS['general'];
-  const selectedHashtags = hashtags.slice(0, 5); // 5 hashtags × 50 vídeos = 250 vídeos
+  const selectedHashtags = hashtags.slice(0, 5);
   
-  console.log(`[PIPELINE] Nicho: ${niche} | Hashtags: ${selectedHashtags.join(', ')}`);
+  const jobId = createJob();
+  console.log(`[JOB ${jobId}] Iniciado | Nicho: ${niche}`);
   
-  try {
-    // Fase 1: TikTok
-    const videos = await scrapeTikTok(selectedHashtags, 50);
-    if (!videos.length) return res.json({ success: false, error: 'No se obtuvieron vídeos de TikTok', ads: [] });
-    
-    // Fase 2: Claude
-    const productMap = await identifyProductsBatch(videos);
-    
-    // Fase 3: Agrupar y puntuar
-    const products = groupAndScore(videos, productMap);
-    
-    console.log(`[RESULTADO] ${products.length} productos detectados de ${videos.length} vídeos`);
-    
-    res.json({
-      success: true,
-      source: 'tiktok',
-      niche,
-      total_videos: videos.length,
-      total_products: products.length,
-      ads: products.slice(0, parseInt(limit)),
-      debug: { hashtags: selectedHashtags, cache_size: productCache.size }
-    });
-    
-  } catch(e) {
-    console.error('[PIPELINE ERROR]', e.message);
-    res.status(500).json({ success: false, error: e.message, ads: [] });
+  // Responder inmediatamente con job_id
+  res.json({ success: true, job_id: jobId, status: 'running', message: 'Búsqueda iniciada' });
+  
+  // Procesar en background
+  (async () => {
+    try {
+      updateJob(jobId, { progress: 'Conectando con TikTok...' });
+      const videos = await scrapeTikTok(selectedHashtags, 100);
+      if (!videos.length) { updateJob(jobId, { status: 'done', result: { success: false, error: 'No se obtuvieron vídeos', ads: [] } }); return; }
+      
+      console.log(`[JOB ${jobId}] Vídeos TikTok: ${videos.length}`);
+      updateJob(jobId, { progress: `${videos.length} vídeos obtenidos. Analizando con IA...` });
+      
+      const productMap = await identifyProductsBatch(videos);
+      const identified = Object.keys(productMap).length;
+      console.log(`[JOB ${jobId}] Productos Claude: ${identified}`);
+      updateJob(jobId, { progress: `${identified} productos identificados. Agrupando...` });
+      
+      const products = groupAndScore(videos, productMap);
+      console.log(`[JOB ${jobId}] Productos agrupados: ${products.length}`);
+      
+      const result = {
+        success: true, source: 'tiktok', niche,
+        total_videos: videos.length,
+        total_products: products.length,
+        ads: products.slice(0, parseInt(limit)),
+        debug: { identified, cache_size: productCache.size }
+      };
+      updateJob(jobId, { status: 'done', result, progress: `Completado: ${products.length} productos` });
+      console.log(`[JOB ${jobId}] DONE | ${products.length} productos de ${videos.length} vídeos`);
+    } catch(e) {
+      console.error(`[JOB ${jobId}] ERROR:`, e.message);
+      updateJob(jobId, { status: 'error', error: e.message, result: { success: false, error: e.message, ads: [] } });
+    }
+  })();
+});
+
+// Consultar estado de un job
+app.get('/job-status/:jobId', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Job no encontrado' });
+  if (job.status === 'done' || job.status === 'error') {
+    return res.json({ status: job.status, progress: job.progress, result: job.result });
   }
+  res.json({ status: 'running', progress: job.progress });
 });
 
 // ENDPOINT META ADS (mantener el anterior)

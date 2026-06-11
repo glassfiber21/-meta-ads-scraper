@@ -314,17 +314,43 @@ async function run(){
   ]);
 
   try{
-    const endpoint = isTikTok
-      ? `${API}/tiktok-products?niche=${encodeURIComponent(niche)}&limit=${limit}`
-      : `${API}/scrape-ads?country=${g('fc').value}&niche=${encodeURIComponent(niche)}&min_days_active=${minDays}&limit=${limit}`;
-
-    const reqs=[
-      fetch(endpoint)
-        .then(async r=>{const txt=await r.text();try{return JSON.parse(txt);}catch(e){return{ads:[],_raw:txt.slice(0,300)};}})
-        .catch(e=>({ads:[],error:e.message}))
-    ];
-
-    const results=await Promise.all(reqs);
+    let results;
+    if (isTikTok) {
+      // TikTok: job asíncrono con polling
+      const initRes = await fetch(`${API}/tiktok-products?niche=${encodeURIComponent(niche)}&limit=${limit}`)
+        .then(r=>r.json()).catch(e=>({error:e.message}));
+      
+      if (!initRes.job_id) { results=[{ads:[],error:initRes.error||'Error iniciando búsqueda'}]; }
+      else {
+        const jobId = initRes.job_id;
+        // Polling cada 5 segundos
+        let done = false;
+        let attempts = 0;
+        while (!done && attempts < 72) { // máx 6 minutos
+          await new Promise(r=>setTimeout(r,5000));
+          attempts++;
+          const poll = await fetch(`${API}/job-status/${jobId}`).then(r=>r.json()).catch(()=>({status:'error'}));
+          setLog([
+            '🎵 Analizando vídeos de TikTok...',
+            poll.progress || `Procesando... (${attempts * 5}s)`,
+            attempts > 5 ? '⏳ Esto puede tardar 3-5 minutos' : ''
+          ].filter(Boolean));
+          if (poll.status === 'done' || poll.status === 'error') {
+            results = [poll.result || {ads:[],error:'Error desconocido'}];
+            done = true;
+          }
+        }
+        if (!done) results = [{ads:[],error:'Timeout: la búsqueda tardó demasiado'}];
+      }
+    } else {
+      // Meta: petición directa
+      const reqs=[
+        fetch(`${API}/scrape-ads?country=${g('fc').value}&niche=${encodeURIComponent(niche)}&min_days_active=${minDays}&limit=${limit}`)
+          .then(async r=>{const txt=await r.text();try{return JSON.parse(txt);}catch(e){return{ads:[],_raw:txt.slice(0,300)};}})
+          .catch(e=>({ads:[],error:e.message}))
+      ];
+      results = await Promise.all(reqs);
+    }
 
     setLog(['Conectando con Meta Ads Library...','Filtrando anuncios con '+minDays+'+ días activos...','Analizando productos ganadores...']);
     await new Promise(r=>setTimeout(r,300));
