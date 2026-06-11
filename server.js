@@ -41,19 +41,18 @@ app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().
 app.get('/cazador', (req, res) => res.sendFile(path.join(__dirname, 'cazador.html')));
 app.use(express.static(__dirname));
 
-// Top 5 hashtags por nicho — selección manual priorizando hashtags transversales de ecommerce
-// Regla: siempre mezclar hashtags específicos del nicho + transversales (amazonfinds, tiktokmademebuyit)
-const HASHTAGS = {
-  'hogar':       ['homefinds', 'homeessentials', 'amazonfinds', 'amazonmusthaves', 'tiktokmademebuyit'],
-  'cocina':      ['kitchengadgets', 'kitchenfinds', 'amazonfinds', 'amazonmusthaves', 'tiktokmademebuyit'],
-  'limpieza':    ['cleaningtiktok', 'cleaningproducts', 'amazonfinds', 'amazonmusthaves', 'tiktokmademebuyit'],
-  'organizacion':['organization', 'storageideas', 'amazonfinds', 'amazonmusthaves', 'tiktokmademebuyit'],
-  'mascotas':    ['petproducts', 'petgadgets', 'amazonfinds', 'amazonmusthaves', 'tiktokmademebuyit'],
-  'jardin':      ['gardentools', 'poolproducts', 'amazonfinds', 'amazonmusthaves', 'tiktokmademebuyit'],
-  'bano':        ['bathroomfinds', 'bathroomproducts', 'amazonfinds', 'amazonmusthaves', 'tiktokmademebuyit'],
-  'verano':      ['summermusthaves', 'poolmusthaves', 'amazonfinds', 'amazonmusthaves', 'tiktokmademebuyit'],
-  'viaje':       ['travelessentials', 'travelgadgets', 'amazonfinds', 'amazonmusthaves', 'tiktokmademebuyit'],
-  'general':     ['tiktokmademebuyit', 'amazonfinds', 'amazonmusthaves', 'amazonfavorites', 'viralproducts']
+// Search queries por nicho — texto en mayúsculas para TikTok searchQueries
+const SEARCH_QUERIES = {
+  'cocina':       ['KITCHEN GADGETS', 'KITCHEN FINDS', 'COOKING GADGETS', 'KITCHEN MUST HAVES', 'MEAL PREP'],
+  'hogar':        ['HOME ESSENTIALS', 'HOME FINDS', 'HOME ORGANIZATION', 'HOME PRODUCTS', 'HOME HACKS'],
+  'limpieza':     ['CLEANING PRODUCTS', 'CLEANING HACKS', 'DEEP CLEANING', 'CLEAN WITH ME', 'CLEANING GADGETS'],
+  'organizacion': ['ORGANIZATION IDEAS', 'HOME ORGANIZATION', 'DECLUTTER', 'STORAGE HACKS', 'ORGANIZED HOME'],
+  'mascotas':     ['PET PRODUCTS', 'PET GADGETS', 'DOG PRODUCTS', 'DOG MUST HAVES', 'CAT PRODUCTS'],
+  'jardin':       ['GARDEN TOOLS', 'BACKYARD IDEAS', 'POOL PRODUCTS', 'OUTDOOR PRODUCTS', 'GARDEN FINDS'],
+  'bano':         ['BATHROOM FINDS', 'BATHROOM PRODUCTS', 'BATHROOM ORGANIZATION', 'SELF CARE PRODUCTS', 'BATHROOM HACKS'],
+  'verano':       ['SUMMER PRODUCTS', 'SUMMER MUST HAVES', 'BEACH MUST HAVES', 'POOL MUST HAVES', 'SUMMER GADGETS'],
+  'viaje':        ['TRAVEL ESSENTIALS', 'TRAVEL GADGETS', 'PACKING HACKS', 'TRAVEL MUST HAVES', 'CARRY ON ESSENTIALS'],
+  'general':      ['TIKTOK MADE ME BUY IT', 'AMAZON FINDS', 'VIRAL PRODUCTS', 'MUST HAVE PRODUCTS', 'LIFE HACK PRODUCTS']
 };
 
 const GENERIC_BLACKLIST = [
@@ -97,6 +96,39 @@ function normalizeProduct(name) {
     'pet hair remover': 'Pet Hair Remover',
     'dog hair remover': 'Pet Hair Remover',
     'cat hair remover': 'Pet Hair Remover',
+    // Steamer variants
+    'portable handheld steamer': 'Handheld Steamer',
+    'handheld steamer iron': 'Handheld Steamer',
+    'travel steamer': 'Handheld Steamer',
+    'garment steamer': 'Handheld Steamer',
+    'clothes steamer': 'Handheld Steamer',
+    'fabric steamer': 'Handheld Steamer',
+    // Fan variants
+    'portable mini fan': 'Portable Fan',
+    'handheld fan': 'Portable Fan',
+    'personal fan': 'Portable Fan',
+    'desk fan': 'Portable Fan',
+    'clip on fan': 'Portable Fan',
+    // Chopper/slicer variants
+    'vegetable cutter': 'Vegetable Chopper',
+    'food chopper': 'Vegetable Chopper',
+    'manual food chopper': 'Vegetable Chopper',
+    'veggie chopper': 'Vegetable Chopper',
+    'onion chopper': 'Vegetable Chopper',
+    // Blender variants
+    'bullet blender': 'Portable Blender',
+    'personal blender': 'Portable Blender',
+    'smoothie blender': 'Portable Blender',
+    // Storage variants
+    'storage container': 'Storage Containers',
+    'food storage container': 'Storage Containers',
+    'airtight container': 'Storage Containers',
+    'meal prep container': 'Storage Containers',
+    // Cleaner variants
+    'steam cleaner': 'Steam Cleaner',
+    'portable steam cleaner': 'Steam Cleaner',
+    'handheld steam cleaner': 'Steam Cleaner',
+    'electric steam cleaner': 'Steam Cleaner',
   };
   if (aliases[n]) return aliases[n];
   for (const [alias, canonical] of Object.entries(aliases)) {
@@ -468,7 +500,17 @@ function groupAndScore(videos, productMap) {
 // ENDPOINT PRINCIPAL: lanza job asíncrono y devuelve job_id inmediatamente
 app.get('/tiktok-products', async (req, res) => {
   const { niche = 'general', limit = 10 } = req.query;
-  const hashtags = HASHTAGS[niche] || HASHTAGS['general'];
+  // Normalizar el nicho al key del mapa
+  const nicheMap = {
+    'kitchen gadgets': 'cocina', 'hogar & cocina': 'cocina', 'hogar': 'hogar',
+    'cocina': 'cocina', 'limpieza': 'limpieza', 'organizacion': 'organizacion',
+    'mascotas': 'mascotas', 'jardin': 'jardin', 'bano': 'bano',
+    'verano': 'verano', 'viaje': 'viaje', 'general': 'general',
+    'pets': 'mascotas', 'garden': 'jardin', 'cleaning': 'limpieza'
+  };
+  const nicheKey = nicheMap[niche.toLowerCase()] || niche.toLowerCase();
+  const hashtags = SEARCH_QUERIES[nicheKey] || SEARCH_QUERIES['general'];
+  console.log(`[NICHE] "${niche}" → key="${nicheKey}" → queries: ${hashtags.join(', ')}`);
   const selectedHashtags = hashtags; // ya son exactamente 5 por nicho
   
   const jobId = createJob();
