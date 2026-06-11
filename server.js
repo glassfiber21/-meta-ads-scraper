@@ -41,15 +41,19 @@ app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().
 app.get('/cazador', (req, res) => res.sendFile(path.join(__dirname, 'cazador.html')));
 app.use(express.static(__dirname));
 
-// Hashtags por nicho
+// Top 5 hashtags por nicho — selección manual priorizando hashtags transversales de ecommerce
+// Regla: siempre mezclar hashtags específicos del nicho + transversales (amazonfinds, tiktokmademebuyit)
 const HASHTAGS = {
-  'hogar': ['tiktokmademebuyit','amazonfinds','kitchengadgets','homefinds','homeessentials','kitchenhacks','cookinggadgets','homeorganization','homeupgrades','kitchenmusthaves'],
-  'mascotas': ['petproducts','petgadgets','dogproducts','dogmusthaves','catproducts','petfinds','petaccessories','dogsoftiktok','catsoftiktok'],
-  'fitness': ['fitnesstok','gymtok','workoutgadgets','homegym','fitnessproducts','gymmusthaves'],
-  'belleza': ['beautytok','skincareproducts','beautyfinds','skincareroutine','makeupfinds'],
-  'gadgets': ['coolgadgets','techgadgets','gadgetsoftiktok','amazontech','usefulproducts'],
-  'jardin': ['gardenfinds','gardentools','outdoorproducts','backyardideas','poolproducts'],
-  'general': ['tiktokmademebuyit','amazonfinds','viralproducts','musthaves','bestfinds','productfinds']
+  'hogar':       ['homefinds', 'homeessentials', 'amazonfinds', 'amazonmusthaves', 'tiktokmademebuyit'],
+  'cocina':      ['kitchengadgets', 'kitchenfinds', 'amazonfinds', 'amazonmusthaves', 'tiktokmademebuyit'],
+  'limpieza':    ['cleaningtiktok', 'cleaningproducts', 'amazonfinds', 'amazonmusthaves', 'tiktokmademebuyit'],
+  'organizacion':['organization', 'storageideas', 'amazonfinds', 'amazonmusthaves', 'tiktokmademebuyit'],
+  'mascotas':    ['petproducts', 'petgadgets', 'amazonfinds', 'amazonmusthaves', 'tiktokmademebuyit'],
+  'jardin':      ['gardentools', 'poolproducts', 'amazonfinds', 'amazonmusthaves', 'tiktokmademebuyit'],
+  'bano':        ['bathroomfinds', 'bathroomproducts', 'amazonfinds', 'amazonmusthaves', 'tiktokmademebuyit'],
+  'verano':      ['summermusthaves', 'poolmusthaves', 'amazonfinds', 'amazonmusthaves', 'tiktokmademebuyit'],
+  'viaje':       ['travelessentials', 'travelgadgets', 'amazonfinds', 'amazonmusthaves', 'tiktokmademebuyit'],
+  'general':     ['tiktokmademebuyit', 'amazonfinds', 'amazonmusthaves', 'amazonfavorites', 'viralproducts']
 };
 
 const GENERIC_BLACKLIST = [
@@ -113,9 +117,8 @@ function normalizeProduct(name) {
 async function scrapeTikTok(hashtags, videosPerHashtag = 50) {
   console.log(`[TIKTOK] Scraping ${hashtags.length} hashtags × ${videosPerHashtag} vídeos`);
   
-  const queries = TEST_MODE
-    ? ['tiktokmademebuyit', 'amazonfinds', 'amazonmusthaves', 'amazonfavorites', 'viralproducts']
-    : ['TIKTOK MADE ME BUY IT', 'AMAZON FINDS', 'HOME MUST HAVES', 'KITCHEN GADGETS', 'LIFE HACK PRODUCTS'];
+  // Usar los hashtags recibidos por parámetro, sin hardcode
+  const queries = hashtags;
   const perPage = TEST_MODE ? 20 : 100;
 
   console.log(`[APIFY] TEST_MODE: ${TEST_MODE} | Queries: ${queries.join(', ')} | PerPage: ${perPage}`);
@@ -124,7 +127,7 @@ async function scrapeTikTok(hashtags, videosPerHashtag = 50) {
     searchQueries: queries,
     searchSection: '/video',
     videoSearchDateFilter: 'PAST_MONTH',
-    videoSearchSorting: 'MOST_RELEVANT',
+    videoSearchSorting: 'MOST_LIKED', // Opciones: MOST_RELEVANT | MOST_LIKED | MOST_VIEWED — MOST_LIKED prioriza viralidad
     resultsPerPage: perPage,
     shouldDownloadVideos: false,
     shouldDownloadCovers: false,
@@ -453,7 +456,7 @@ function groupAndScore(videos, productMap) {
 app.get('/tiktok-products', async (req, res) => {
   const { niche = 'general', limit = 10 } = req.query;
   const hashtags = HASHTAGS[niche] || HASHTAGS['general'];
-  const selectedHashtags = hashtags.slice(0, 5);
+  const selectedHashtags = hashtags; // ya son exactamente 5 por nicho
   
   const jobId = createJob();
   console.log(`[JOB ${jobId}] Iniciado | Nicho: ${niche}`);
@@ -479,8 +482,18 @@ app.get('/tiktok-products', async (req, res) => {
       const products = groupAndScore(videos, productMap);
       console.log(`[JOB ${jobId}] Productos agrupados: ${products.length}`);
       
+      // Stats detalladas del pipeline
+      const stats_generic = Object.values(productMap).filter(p => p.product !== 'unknown' && (p.specificityScore||0) < 70).length;
+      const stats_unknown = Object.values(productMap).filter(p => p.product === 'unknown').length;
+      const stats_valid = Object.values(productMap).filter(p => p.product !== 'unknown' && (p.specificityScore||0) >= 70).length;
+      console.log('=== STATS PIPELINE ===');
+      console.log(`Vídeos obtenidos: ${videos.length}`);
+      console.log(`Productos identificados por Claude: ${Object.keys(productMap).length}`);
+      console.log(`Descartados: unknown=${stats_unknown} | baja especificidad=${stats_generic}`);
+      console.log(`Productos válidos para agrupar: ${stats_valid}`);
+      console.log(`Productos agrupados (antes filtro): ${products.length + (products.length > 0 ? 0 : 0)}`);
+      console.log(`Productos finales mostrados: ${products.length}`);
       console.log('PRODUCTS LENGTH:', products.length);
-      if (products.length > 0) console.log('FIRST PRODUCT:', JSON.stringify(products[0], null, 2));
 
       const result = {
         success: true, source: 'tiktok', niche,
