@@ -8,6 +8,7 @@ app.use(cors({ origin: '*', methods: ['GET','POST','OPTIONS'], allowedHeaders: [
 app.use(express.json());
 
 const PORT = process.env.PORT || 8080;
+const TEST_MODE = true; // Cambiar a false para producción
 
 // Job queue para búsquedas asíncronas
 const jobs = new Map();
@@ -90,18 +91,19 @@ function normalizeProduct(name) {
 async function scrapeTikTok(hashtags, videosPerHashtag = 50) {
   console.log(`[TIKTOK] Scraping ${hashtags.length} hashtags × ${videosPerHashtag} vídeos`);
   
+  const queries = TEST_MODE
+    ? ['KITCHEN GADGETS']
+    : ['TIKTOK MADE ME BUY IT', 'AMAZON FINDS', 'HOME MUST HAVES', 'KITCHEN GADGETS', 'LIFE HACK PRODUCTS'];
+  const perPage = TEST_MODE ? 20 : 100;
+
+  console.log(`[APIFY] TEST_MODE: ${TEST_MODE} | Queries: ${queries.join(', ')} | PerPage: ${perPage}`);
+
   const input = {
-    searchQueries: [
-      'TIKTOK MADE ME BUY IT',
-      'AMAZON FINDS',
-      'HOME MUST HAVES',
-      'KITCHEN GADGETS',
-      'LIFE HACK PRODUCTS'
-    ],
+    searchQueries: queries,
     searchSection: '/video',
     videoSearchDateFilter: 'PAST_MONTH',
     videoSearchSorting: 'MOST_RELEVANT',
-    resultsPerPage: 100,
+    resultsPerPage: perPage,
     shouldDownloadVideos: false,
     shouldDownloadCovers: false,
     proxyCountryCode: 'US',
@@ -150,7 +152,8 @@ async function scrapeTikTok(hashtags, videosPerHashtag = 50) {
     
     // Obtener resultados
     const datasetId = runData.data?.defaultDatasetId;
-    const itemsRes = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?limit=1000`, {
+    const datasetLimit = TEST_MODE ? 100 : 1000;
+    const itemsRes = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?limit=${datasetLimit}`, {
       headers: { 'Authorization': `Bearer ${APIFY_API_KEY}` }
     });
     const items = await itemsRes.json();
@@ -282,6 +285,12 @@ function groupAndScore(videos, productMap) {
       g.best_video_url = video.webVideoUrl;
     }
   }
+
+  // Log productos detectados por Claude
+  console.log('=== PRODUCTOS DETECTADOS POR CLAUDE ===');
+  Object.entries(productMap).slice(0, 100).forEach(([id, p]) => {
+    if (p.product !== 'unknown') console.log(`${p.product} | ${p.confidence}`);
+  });
 
   // Log top 20 grupos antes de scoring
   const allGroups = Object.values(groups).sort((a,b) => b.videos.length - a.videos.length);
