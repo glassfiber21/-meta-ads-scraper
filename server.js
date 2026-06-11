@@ -52,6 +52,20 @@ const HASHTAGS = {
   'general': ['tiktokmademebuyit','amazonfinds','viralproducts','musthaves','bestfinds','productfinds']
 };
 
+const GENERIC_BLACKLIST = [
+  'product', 'products', 'bundle', 'kit', 'tool', 'tools', 'accessory', 'accessories',
+  'equipment', 'makeup', 'beauty product', 'hair product', 'home product', 'kitchen gadget',
+  'kitchen tool', 'cooking tool', 'beauty', 'skincare product', 'hair care', 'home decor',
+  'cleaning product', 'fitness equipment', 'tech gadget', 'electronic', 'electronics',
+  'device', 'gadget', 'item', 'thing', 'stuff', 'finds', 'must have', 'viral product'
+];
+
+function isGeneric(name) {
+  if (!name) return true;
+  const n = name.toLowerCase().trim();
+  return GENERIC_BLACKLIST.some(b => n === b || n === b + 's');
+}
+
 function normalizeProduct(name) {
   if (!name || name === 'unknown') return null;
   let n = name.toLowerCase().trim();
@@ -191,19 +205,27 @@ async function identifyProductsBatch(videos) {
       text: ((v.text || v.description || '') + ' ' + (v.hashtags?.join(' ') || '')).substring(0, 300)
     }));
 
-    const prompt = `Analyze these TikTok videos and identify the physical product being shown/sold in each one.
+    const prompt = `Analyze these TikTok videos and identify the SPECIFIC physical product being shown/sold.
 
 Videos:
 ${JSON.stringify(adsJson, null, 2)}
 
 Rules:
-- Use generic English names (2-5 words): "Ice Cream Maker", "Air Fryer", "Pet Hair Remover"
-- If it's a service, app, personal content, music, dance, meme → use "unknown"
-- Be consistent: same product type = same name
-- Focus on PHYSICAL PRODUCTS only
+- Identify ONE specific product per video (e.g. "Portable Mini Fan", "Vegetable Chopper", "Oil Sprayer Bottle")
+- Be SPECIFIC: "Portable Mini Fan" not "Fan" or "Electronics"
+- Be SPECIFIC: "Vegetable Chopper" not "Kitchen Tool" or "Kitchen Gadget"
+- If it's a service, app, tutorial, lifestyle content, music, dance → use "unknown"
+- If it's a CATEGORY (makeup, hair care, home decor) not a specific product → use "unknown"
+- Focus only on products a dropshipper could sell
+
+For specificityScore:
+- 90-100: Very specific single product clearly shown (Portable Mini Fan, Garlic Press, Oil Sprayer)
+- 60-89: Specific product but slightly generic name (Hair Dryer, Phone Stand)
+- 30-59: Generic category (Kitchen Gadget, Hair Tool, Makeup Product)
+- 0-29: Not a product or too vague (Bundle, Kit, Home Product)
 
 Reply ONLY with JSON array, no explanation:
-[{"id":"<id>","product":"<product name>","confidence":<0.0-1.0>}]`;
+[{"id":"<id>","product":"<product name>","confidence":<0.0-1.0>,"specificityScore":<0-100>}]`;
 
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -228,7 +250,11 @@ Reply ONLY with JSON array, no explanation:
       const parsed = JSON.parse(clean);
 
       for (const item of parsed) {
-        const r = { product: item.product || 'unknown', confidence: item.confidence || 0 };
+        const r = { 
+          product: item.product || 'unknown', 
+          confidence: item.confidence || 0,
+          specificityScore: item.specificityScore || 0
+        };
         results[item.id] = r;
         productCache.set(item.id, r);
       }
@@ -249,9 +275,11 @@ function groupAndScore(videos, productMap) {
 
   for (const video of videos) {
     const raw = productMap[video.id];
-    if (!raw) { console.log('DESCARTADO:', video.id, '→ no en productMap'); continue; }
-    if (raw.product === 'unknown') { console.log('DESCARTADO:', video.id, '→ unknown'); continue; }
-    if (raw.confidence < 0.6) { console.log('DESCARTADO:', video.id, '→ confianza baja:', raw.confidence, 'producto:', raw.product); continue; }
+    if (!raw) continue;
+    if (raw.product === 'unknown') continue;
+    if (raw.confidence < 0.6) continue;
+    if ((raw.specificityScore || 0) < 70) { console.log('DESCARTADO (genérico):', raw.product, '| specificity:', raw.specificityScore); continue; }
+    if (isGeneric(raw.product)) { console.log('DESCARTADO (blacklist):', raw.product); continue; }
     
     const normalized = normalizeProduct(raw.product);
     if (!normalized) continue;
@@ -268,7 +296,9 @@ function groupAndScore(videos, productMap) {
         total_views: 0,
         total_comments: 0,
         best_cover: '',
-        best_video_url: ''
+        best_video_url: '',
+        newest_days: null,
+        oldest_days: null
       };
     }
     
@@ -277,6 +307,15 @@ function groupAndScore(videos, productMap) {
     g.creators.add(video.authorMeta?.name || video.author || '');
     if (video.hashtags) video.hashtags.forEach(h => { const tag = typeof h === 'string' ? h : (h?.name || h?.title || String(h)); g.hashtags_seen.add(tag.toLowerCase()); });
     if (video.searchQuery) g.search_queries_seen.add(video.searchQuery.toLowerCase());
+    // Track date range
+    const createTime = video.createTime || video.createTimeISO;
+    if (createTime) {
+      const daysAgo = Math.floor((Date.now() - new Date(typeof createTime === 'number' ? createTime * 1000 : createTime).getTime()) / 86400000);
+      if (!isNaN(daysAgo)) {
+        if (g.newest_days === null || daysAgo < g.newest_days) g.newest_days = daysAgo;
+        if (g.oldest_days === null || daysAgo > g.oldest_days) g.oldest_days = daysAgo;
+      }
+    }
     g.total_likes += parseInt(video.diggCount || video.likes || 0);
     g.total_views += parseInt(video.playCount || video.views || 0);
     g.total_comments += parseInt(video.commentCount || video.comments || 0);
@@ -349,6 +388,8 @@ function groupAndScore(videos, productMap) {
         search_queries: Array.from(g.search_queries_seen),
         hashtag_count: g.hashtags_seen.size,
         query_count: g.search_queries_seen.size,
+        newest_days: g.newest_days,
+        oldest_days: g.oldest_days,
         // Campos para compatibilidad con cazador.html
         page_name: g.product_name,
         ad_copy: `${g.videos.length} vídeos virales · ${g.total_views.toLocaleString()} views · ${g.creators.size} creadores`,

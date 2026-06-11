@@ -246,6 +246,9 @@ function renderCards(ads){
     const advList=(ad.advertisers_list||[]).join(', ');
     const score=ad.score||0;
     const adUrl=ad.library_url||`https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=US&q=${encodeURIComponent(product)}&search_type=keyword_unordered`;
+    const newestDays=ad.newest_days!=null?ad.newest_days+'d':'?';
+    const oldestDays=ad.oldest_days!=null?ad.oldest_days+'d':'?';
+    const queries=(ad.search_queries||[]).join(', ')||'';
     const tiktokUrl=`https://www.tiktok.com/search?q=${encodeURIComponent(product)}`;
     const bniche=bundles[niche]||bundles['home products'];
     const prodShort=product.length>40?product.slice(0,40)+'…':product;
@@ -264,6 +267,8 @@ ${ad.image_url?`<img class="cimg" src="${ad.image_url}" alt="" onerror="this.sty
   <div class="met"><div class="ml">Ganas</div><div class="mg">$${p.profit}</div></div>
 </div>
 <div class="cstats">⏱️ Máx <span class="dval">${days}d</span> · Media <b style="color:#e5e5e5">${avgDays}d</b> activo</div>
+${ad.newest_days!=null?`<div class="cstats" style="font-size:11px;color:#9ca3af">📅 Vídeo más reciente: ${newestDays} · Más antiguo: ${oldestDays}</div>`:''}
+${queries?`<div class="cstats" style="font-size:11px;color:#6b7280">🔍 ${queries}</div>`:''}
 <div class="ccopy">${copy}</div>
 ${advList?`<div class="cbundle"><div class="blbl">👤 ANUNCIANTES DETECTADOS</div><div class="btxt">${advList}</div></div>`:''}
 <div class="cbundle" style="margin-top:0">
