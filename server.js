@@ -119,9 +119,9 @@ async function scrapeTikTok(hashtags, videosPerHashtag = 50) {
   
   // Usar los hashtags recibidos por parámetro, sin hardcode
   const queries = hashtags;
-  const perPage = TEST_MODE ? 20 : 100;
+  const perPage = videosPerHashtag; // controlado por el llamador, no por TEST_MODE
 
-  console.log(`[APIFY] TEST_MODE: ${TEST_MODE} | Queries: ${queries.join(', ')} | PerPage: ${perPage}`);
+  console.log(`[APIFY] Queries: ${queries.join(', ')} | PerPage: ${perPage}`);
 
   const input = {
     searchQueries: queries,
@@ -182,11 +182,15 @@ async function scrapeTikTok(hashtags, videosPerHashtag = 50) {
       headers: { 'Authorization': `Bearer ${APIFY_API_KEY}` }
     });
     const items = await itemsRes.json();
-    console.log('ITEMS LENGTH:', items.length);
-    if (items.length > 0) {
-      console.log('FIRST ITEM:');
-      console.log(JSON.stringify(items[0], null, 2));
-    }
+    // Log por hashtag
+    const byQuery = {};
+    items.forEach(v => {
+      const q = v.searchQuery || 'unknown';
+      byQuery[q] = (byQuery[q] || 0) + 1;
+    });
+    console.log('=== VÍDEOS POR HASHTAG ===');
+    Object.entries(byQuery).forEach(([q, n]) => console.log(`  ${q} → ${n} vídeos`));
+    console.log(`  TOTAL: ${items.length} vídeos`);
     return items;
     
   } catch(e) {
@@ -348,6 +352,15 @@ function groupAndScore(videos, productMap) {
     if (p.product !== 'unknown') console.log(`${p.product} | ${p.confidence}`);
   });
 
+  // Log detallado de todos los grupos ANTES del filtro
+  const allGroupsPreFilter = Object.values(groups).sort((a,b) => b.videos.length - a.videos.length);
+  console.log('=== GRUPOS PRE-FILTRO ===');
+  allGroupsPreFilter.forEach(g => {
+    const pass = g.videos.length >= 3 && g.creators.size >= 2;
+    const reason = g.videos.length < 3 ? `solo ${g.videos.length} vídeos (min 3)` : g.creators.size < 2 ? `solo ${g.creators.size} creadores (min 2)` : 'OK';
+    console.log(`${pass ? '✓' : '✗'} ${g.product_name} | ${g.videos.length}v | ${g.creators.size}c | ${g.total_likes} likes | newest=${g.newest_days}d oldest=${g.oldest_days}d | ${reason}`);
+  });
+
   // Log resumen final
   const allGroups = Object.values(groups).sort((a,b) => b.videos.length - a.videos.length);
   const totalIdentified = Object.values(productMap).filter(p => p.product !== 'unknown').length;
@@ -459,7 +472,8 @@ app.get('/tiktok-products', async (req, res) => {
   const selectedHashtags = hashtags; // ya son exactamente 5 por nicho
   
   const jobId = createJob();
-  console.log(`[JOB ${jobId}] Iniciado | Nicho: ${niche}`);
+  const videosPerHashtag = TEST_MODE ? 20 : 100; // TEST_MODE controla el volumen aquí
+  console.log(`[JOB ${jobId}] Iniciado | Nicho: ${niche} | TEST_MODE: ${TEST_MODE} | ${selectedHashtags.length} hashtags × ${videosPerHashtag} vídeos = ${selectedHashtags.length * videosPerHashtag} vídeos máx`);
   
   // Responder inmediatamente con job_id
   res.json({ success: true, job_id: jobId, status: 'running', message: 'Búsqueda iniciada' });
@@ -468,7 +482,7 @@ app.get('/tiktok-products', async (req, res) => {
   (async () => {
     try {
       updateJob(jobId, { progress: 'Conectando con TikTok...' });
-      const videos = await scrapeTikTok(selectedHashtags, 100);
+      const videos = await scrapeTikTok(selectedHashtags, videosPerHashtag);
       if (!videos.length) { updateJob(jobId, { status: 'done', result: { success: false, error: 'No se obtuvieron vídeos', ads: [] } }); return; }
       
       console.log(`[JOB ${jobId}] Vídeos TikTok: ${videos.length}`);
