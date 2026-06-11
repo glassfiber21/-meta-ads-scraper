@@ -250,7 +250,7 @@ function groupAndScore(videos, productMap) {
     const g = groups[key];
     g.videos.push(video);
     g.creators.add(video.authorMeta?.name || video.author || '');
-    if (video.hashtags) video.hashtags.forEach(h => g.hashtags_seen.add(h.toLowerCase()));
+    if (video.hashtags) video.hashtags.forEach(h => { const tag = typeof h === 'string' ? h : (h?.name || h?.title || String(h)); g.hashtags_seen.add(tag.toLowerCase()); });
     g.total_likes += parseInt(video.diggCount || video.likes || 0);
     g.total_views += parseInt(video.playCount || video.views || 0);
     g.total_comments += parseInt(video.commentCount || video.comments || 0);
