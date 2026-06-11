@@ -98,7 +98,15 @@ function normalizeProduct(name) {
   for (const [alias, canonical] of Object.entries(aliases)) {
     if (n.includes(alias) || alias.includes(n)) return canonical;
   }
-  return name.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  // Normalización agresiva para agrupar variantes del mismo producto
+  let norm = n
+    .replace(/\bportable\b/g, '').replace(/\bhandheld\b/g, '').replace(/\bmini\b/g, '')
+    .replace(/\belectric\b/g, '').replace(/\bwireless\b/g, '').replace(/\bsmart\b/g, '')
+    .replace(/\bautomatic\b/g, '').replace(/\bpro\b/g, '').replace(/\bpremium\b/g, '')
+    .replace(/\bdigital\b/g, '').replace(/\bcordless\b/g, '').replace(/\bcompact\b/g, '')
+    .replace(/s\b/g, '').replace(/\s+/g, ' ').trim();
+  if (!norm || norm.length < 3) norm = n;
+  return norm.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
 // FASE 1: Scraping TikTok via Apify
@@ -271,7 +279,11 @@ Reply ONLY with JSON array, no explanation:
 function groupAndScore(videos, productMap) {
   const groups = {};
   
-  console.log('TOTAL VIDEOS TO PROCESS:', videos.length);
+  console.log('=== PIPELINE TRACE ===');
+  console.log('Vídeos recibidos desde Apify:', videos.length);
+  const validVideos = videos.filter(v => productMap[v.id] && productMap[v.id].product !== 'unknown' && productMap[v.id].confidence >= 0.6 && (productMap[v.id].specificityScore || 0) >= 70);
+  console.log('Vídeos válidos tras filtros:', validVideos.length);
+  console.log('Vídeos descartados:', videos.length - validVideos.length);
 
   for (const video of videos) {
     const raw = productMap[video.id];
@@ -357,23 +369,53 @@ function groupAndScore(videos, productMap) {
   });
   console.log(`DISTRIBUCIÓN → 1v: ${dist[1]} | 2v: ${dist[2]} | 3v: ${dist[3]} | 5v+: ${dist[5]} | 10v+: ${dist[10]}`);
 
-  // Score = apariciones×40% + vistas×30% + likes×20% + comentarios×10%
+  // Score basado en replicación (creadores únicos tiene máximo peso)
   return Object.values(groups)
     .filter(g => {
-      console.log(`GRUPO: ${g.product_name} → ${g.videos.length} vídeos → ${g.advertisers ? g.advertisers.size : g.creators?.size || 0} creadores`);
-      if (g.videos.length < 1) { console.log('DESCARTADO:', g.product_name, '→ 0 vídeos'); return false; }
+      const v = g.videos.length;
+      const c = g.creators.size;
+      if (v < 3 || c < 2) {
+        console.log(`FILTRADO: ${g.product_name} → ${v}v / ${c}c (insuficiente)`);
+        return false;
+      }
       return true;
-    }) // mínimo 1 vídeo para test
+    }) // mínimo 2 vídeos y 2 creadores
     .map(g => {
       const maxViews = 1000000;
       const maxLikes = 100000;
       const maxComments = 10000;
-      const score = Math.round(
-        (g.videos.length / 20 * 100 * 0.4) +
-        (Math.min(g.total_views, maxViews) / maxViews * 100 * 0.3) +
-        (Math.min(g.total_likes, maxLikes) / maxLikes * 100 * 0.2) +
-        (Math.min(g.total_comments, maxComments) / maxComments * 100 * 0.1)
+      // Freshness score: qué tan reciente es la conversación
+      const newestDays = g.newest_days || 999;
+      const oldestDays = g.oldest_days || 0;
+      const freshnessScore = newestDays <= 7 ? 100 :
+                             newestDays <= 14 ? 80 :
+                             newestDays <= 30 ? 60 :
+                             newestDays <= 60 ? 40 : 20;
+
+      // Penalización temporal: si el vídeo más antiguo es muy viejo, no es tendencia
+      const agePenalty = oldestDays > 180 ? 0.5 :
+                         oldestDays > 90  ? 0.75 : 1.0;
+
+      // Replication score: creadores únicos tiene máximo peso
+      const creator_score  = Math.round(g.creators.size / 10 * 100);
+      const video_score    = Math.round(g.videos.length / 20 * 100);
+      const views_score    = Math.round(Math.min(g.total_views, maxViews) / maxViews * 100);
+      const likes_score    = Math.round(Math.min(g.total_likes, maxLikes) / maxLikes * 100);
+
+      const base_score = Math.round(
+        (creator_score  * 0.40) +
+        (video_score    * 0.25) +
+        (freshnessScore * 0.20) +
+        (views_score    * 0.10) +
+        (likes_score    * 0.05)
       );
+      const score = Math.round(base_score * agePenalty);
+
+      const score_breakdown = {
+        creator_score, video_score, freshness_score: freshnessScore,
+        views_score, likes_score, age_penalty: agePenalty, final_score: score
+      };
+      console.log(`SCORE ${g.product_name}: creators=${creator_score} videos=${video_score} fresh=${freshnessScore} age_penalty=${agePenalty} → ${score}`);
       return {
         product_name: g.product_name,
         tiktok_score: score,
