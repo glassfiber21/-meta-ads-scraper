@@ -73,18 +73,47 @@ const SEARCH_QUERIES = {
 };
 
 const GENERIC_BLACKLIST = [
+  // Genéricos absolutos
   'product', 'products', 'bundle', 'kit', 'tool', 'tools', 'accessory', 'accessories',
-  'equipment', 'makeup', 'beauty product', 'hair product', 'home product', 'kitchen gadget',
-  'kitchen tool', 'cooking tool', 'beauty', 'skincare product', 'hair care', 'home decor',
-  'cleaning product', 'fitness equipment', 'tech gadget', 'electronic', 'electronics',
-  'device', 'gadget', 'item', 'thing', 'stuff', 'finds', 'must have', 'viral product'
+  'equipment', 'device', 'gadget', 'gadgets', 'item', 'thing', 'stuff', 'finds',
+  'must have', 'viral product', 'viral products',
+  // Categorías de cocina demasiado amplias
+  'kitchen gadget', 'kitchen gadgets', 'kitchen tool', 'kitchen tools', 'cooking tool',
+  'cooking gadget', 'cooking gadgets', 'kitchen item', 'kitchen items',
+  // Categorías de belleza/moda
+  'makeup', 'beauty product', 'beauty products', 'hair product', 'hair products',
+  'skincare product', 'hair care', 'beauty',
+  // Categorías de hogar demasiado amplias
+  'home product', 'home products', 'home decor', 'home gadget', 'home gadgets',
+  'cleaning product', 'cleaning products', 'cleaning tool',
+  // Categorías de fitness/tech
+  'fitness equipment', 'tech gadget', 'tech gadgets', 'electronic', 'electronics',
+  // Términos de slicer/cutter genéricos — solos sin modificador específico
+  'vegetable slicer', 'vegetable cutter', 'vegetable peeler', 'vegetable chopper',
+  'food slicer', 'food cutter', 'food chopper', 'salad cutter',
+  // Otros de una sola palabra que son categoría
+  'organizer', 'storage', 'cleaner', 'spray', 'brush',
+  'toy', 'toys', 'pet toy', 'dog toy', 'cat toy',
 ];
+
+// Sufijos que solos (con 1 adjetivo genérico) forman un nombre de categoría, no de producto
+// Ej: "Vegetable Slicer" → 2 palabras, última = 'slicer' → genérico
+// Ej: "5-in-1 Mandoline Slicer" → 3+ palabras → específico → NO bloqueado
+const GENERIC_SUFFIXES = ['slicer','cutter','chopper','peeler','grater','organizer','cleaner','gadget','tool','toy','spray'];
 
 function isGeneric(name) {
   if (!name) return true;
   const n = name.toLowerCase().trim();
-  return GENERIC_BLACKLIST.some(b => n === b || n === b + 's');
+  // Coincidencia exacta con blacklist
+  if (GENERIC_BLACKLIST.some(b => n === b || n === b + 's')) return true;
+  // Nombre de exactamente 2 palabras donde la última es un sufijo genérico
+  // Ej: "Vegetable Slicer" → bloqueado. "Mandoline Slicer" → bloqueado.
+  // Ej: "Garlic Mincer" → 'mincer' no está en GENERIC_SUFFIXES → pasa
+  const words = n.split(/\s+/).filter(w => w.length > 1);
+  if (words.length === 2 && GENERIC_SUFFIXES.includes(words[1])) return true;
+  return false;
 }
+
 
 function normalizeProduct(name) {
   if (!name || name === 'unknown') return null;
@@ -362,42 +391,63 @@ function groupAndScore(videos, productMap) {
     if (!groups[key]) {
       groups[key] = {
         product_name: normalized,
-        videos: [],
-        creators: new Set(),
+        all_videos: [],      // todos los vídeos (incluyendo no virales)
+        viral_videos: [],    // solo vídeos con likes>=500 OR views>=10k
+        creators: new Set(), // creadores únicos de vídeos VIRALES
         hashtags_seen: new Set(),
         search_queries_seen: new Set(),
-        total_likes: 0,
-        total_views: 0,
+        total_likes: 0,      // suma solo de vídeos virales
+        total_views: 0,      // suma solo de vídeos virales
         total_comments: 0,
         best_cover: '',
         best_video_url: '',
+        best_video_urls: [],
+        best_video_likes: 0,
         newest_days: null,
         oldest_days: null
       };
     }
     
+    const videoLikes = parseInt(video.diggCount || video.likes || 0);
+    const videoViews = parseInt(video.playCount || video.views || 0);
+    const isViral = videoLikes >= 500 || videoViews >= 10000;
+    
     const g = groups[key];
-    g.videos.push(video);
-    g.creators.add(video.authorMeta?.name || video.author || '');
+    g.all_videos.push(video); // todos los vídeos del producto
+    
+    if (isViral) {
+      g.viral_videos.push(video);
+      // Solo los creadores de vídeos virales cuentan como "creadores reales"
+      g.creators.add(video.authorMeta?.name || video.author || '');
+    }
+    
     if (video.hashtags) video.hashtags.forEach(h => { const tag = typeof h === 'string' ? h : (h?.name || h?.title || String(h)); g.hashtags_seen.add(tag.toLowerCase()); });
     if (video.searchQuery) g.search_queries_seen.add(video.searchQuery.toLowerCase());
-    // Track date range
+    
+    // Fechas: basadas en vídeos virales (más fiables)
     const createTime = video.createTime || video.createTimeISO;
-    if (createTime) {
+    if (createTime && isViral) {
       const daysAgo = Math.floor((Date.now() - new Date(typeof createTime === 'number' ? createTime * 1000 : createTime).getTime()) / 86400000);
       if (!isNaN(daysAgo)) {
         if (g.newest_days === null || daysAgo < g.newest_days) g.newest_days = daysAgo;
         if (g.oldest_days === null || daysAgo > g.oldest_days) g.oldest_days = daysAgo;
       }
     }
-    g.total_likes += parseInt(video.diggCount || video.likes || 0);
-    g.total_views += parseInt(video.playCount || video.views || 0);
-    g.total_comments += parseInt(video.commentCount || video.comments || 0);
-    if (!g.best_cover && (video.covers?.default || video.coverUrl || video.cover)) {
-      g.best_cover = video.covers?.default || video.coverUrl || video.cover || '';
+    
+    // Métricas: acumular solo vídeos virales para que el total refleje calidad real
+    if (isViral) {
+      g.total_likes += videoLikes;
+      g.total_views += videoViews;
+      g.total_comments += parseInt(video.commentCount || video.comments || 0);
     }
-    if (!g.best_video_url && video.webVideoUrl) {
-      g.best_video_url = video.webVideoUrl;
+    
+    // Cover: preferir el vídeo viral con más likes
+    if (isViral && videoLikes > (g.best_video_likes || 0)) {
+      g.best_video_likes = videoLikes;
+      g.best_cover = video.covers?.default || video.coverUrl || video.cover || g.best_cover || '';
+      g.best_video_url = video.webVideoUrl || g.best_video_url || '';
+      g.best_video_urls = (g.best_video_urls || []);
+      if (video.webVideoUrl) g.best_video_urls.push(video.webVideoUrl);
     }
   }
 
@@ -408,70 +458,63 @@ function groupAndScore(videos, productMap) {
   });
 
   // Log detallado de todos los grupos ANTES del filtro
-  const allGroupsPreFilter = Object.values(groups).sort((a,b) => b.videos.length - a.videos.length);
-  console.log('=== GRUPOS PRE-FILTRO ===');
+  const allGroupsPreFilter = Object.values(groups).sort((a,b) => b.viral_videos.length - a.viral_videos.length);
+  console.log('=== GRUPOS PRE-FILTRO (vídeos virales × creadores únicos) ===');
   allGroupsPreFilter.forEach(g => {
-    const pass = g.videos.length >= 3 && g.creators.size >= 2;
-    const reason = g.videos.length < 3 ? `solo ${g.videos.length} vídeos (min 3)` : g.creators.size < 2 ? `solo ${g.creators.size} creadores (min 2)` : 'OK';
-    console.log(`${pass ? '✓' : '✗'} ${g.product_name} | ${g.videos.length}v | ${g.creators.size}c | ${g.total_likes} likes | newest=${g.newest_days}d oldest=${g.oldest_days}d | ${reason}`);
+    const vv = g.viral_videos.length;
+    const av = g.all_videos.length;
+    const c = g.creators.size;
+    const pass = vv >= 2 && c >= 2;
+    const reason = vv < 2 ? `solo ${vv} virales (min 2)` : c < 2 ? `solo ${c} creadores (min 2)` : 'OK';
+    console.log(`${pass ? '✓' : '✗'} ${g.product_name} | ${vv}vv/${av}vt | ${c}c | ${g.total_likes}L ${g.total_views}V | newest=${g.newest_days}d oldest=${g.oldest_days}d | ${reason}`);
   });
 
   // Log resumen final
-  const allGroups = Object.values(groups).sort((a,b) => b.videos.length - a.videos.length);
+  const allGroups = Object.values(groups).sort((a,b) => b.viral_videos.length - a.viral_videos.length);
   const totalIdentified = Object.values(productMap).filter(p => p.product !== 'unknown').length;
   console.log('=== RESUMEN ===');
   console.log(`Vídeos analizados: ${videos.length}`);
   console.log(`Productos identificados por Claude: ${totalIdentified}`);
-  console.log(`Productos agrupados: ${allGroups.length}`);
-  console.log('=== TOP 10 PRODUCTOS ===');
+  console.log(`Grupos formados: ${allGroups.length}`);
+  console.log('=== TOP 10 PRODUCTOS (por vídeos virales) ===');
   allGroups.slice(0, 10).forEach(g => {
-    const queries = Array.from(g.search_queries_seen).join(', ');
-    const hashtags = Array.from(g.hashtags_seen).slice(0, 3).join(', ');
-    console.log(`${g.product_name} | ${g.videos.length} vídeos | ${g.creators.size} creadores | queries: ${queries} | hashtags: ${hashtags}`);
+    console.log(`${g.product_name} | ${g.viral_videos.length}vv/${g.all_videos.length}vt | ${g.creators.size}c | ${g.total_likes}L ${g.total_views}V`);
   });
-  // Distribución
   const dist = {1:0, 2:0, 3:0, 5:0, 10:0};
   allGroups.forEach(g => {
-    if (g.videos.length >= 10) dist[10]++;
-    else if (g.videos.length >= 5) dist[5]++;
-    else if (g.videos.length >= 3) dist[3]++;
-    else if (g.videos.length >= 2) dist[2]++;
-    else dist[1]++;
+    const v = g.viral_videos.length;
+    if (v >= 10) dist[10]++; else if (v >= 5) dist[5]++; else if (v >= 3) dist[3]++; else if (v >= 2) dist[2]++; else dist[1]++;
   });
-  console.log(`DISTRIBUCIÓN → 1v: ${dist[1]} | 2v: ${dist[2]} | 3v: ${dist[3]} | 5v+: ${dist[5]} | 10v+: ${dist[10]}`);
+  console.log(`DISTRIBUCIÓN VIRALES → 1v: ${dist[1]} | 2v: ${dist[2]} | 3v: ${dist[3]} | 5v+: ${dist[5]} | 10v+: ${dist[10]}`);
 
-  // Score basado en replicación (creadores únicos tiene máximo peso)
+  // Score basado en replicación VIRAL (creadores únicos con vídeos virales)
   return Object.values(groups)
     .filter(g => {
-      const v = g.videos.length;
+      const vv = g.viral_videos.length;
       const c = g.creators.size;
-      if (v < 2 || c < 2) {
-        console.log(`FILTRADO: ${g.product_name} → ${v}v / ${c}c (insuficiente)`);
+      if (vv < 2 || c < 2) {
+        console.log(`FILTRADO: ${g.product_name} → ${vv}vv / ${c}c (insuficiente)`);
         return false;
       }
       return true;
-    }) // mínimo 2 vídeos y 2 creadores
+    })
     .map(g => {
       const maxViews = 1000000;
       const maxLikes = 100000;
-      const maxComments = 10000;
-      // Freshness score: qué tan reciente es la conversación
       const newestDays = g.newest_days || 999;
       const oldestDays = g.oldest_days || 0;
       const freshnessScore = newestDays <= 7 ? 100 :
                              newestDays <= 14 ? 80 :
                              newestDays <= 30 ? 60 :
                              newestDays <= 60 ? 40 : 20;
-
-      // Penalización temporal: si el vídeo más antiguo es muy viejo, no es tendencia
       const agePenalty = oldestDays > 180 ? 0.5 :
                          oldestDays > 90  ? 0.75 : 1.0;
 
-      // Replication score: creadores únicos tiene máximo peso
-      const creator_score  = Math.round(g.creators.size / 10 * 100);
-      const video_score    = Math.round(g.videos.length / 20 * 100);
-      const views_score    = Math.round(Math.min(g.total_views, maxViews) / maxViews * 100);
-      const likes_score    = Math.round(Math.min(g.total_likes, maxLikes) / maxLikes * 100);
+      // Score basado en vídeos VIRALES únicamente
+      const creator_score = Math.round(g.creators.size / 10 * 100);
+      const video_score   = Math.round(g.viral_videos.length / 20 * 100);
+      const views_score   = Math.round(Math.min(g.total_views, maxViews) / maxViews * 100);
+      const likes_score   = Math.round(Math.min(g.total_likes, maxLikes) / maxLikes * 100);
 
       const base_score = Math.round(
         (creator_score  * 0.40) +
@@ -482,36 +525,34 @@ function groupAndScore(videos, productMap) {
       );
       const score = Math.round(base_score * agePenalty);
 
-      const score_breakdown = {
-        creator_score, video_score, freshness_score: freshnessScore,
-        views_score, likes_score, age_penalty: agePenalty, final_score: score
-      };
-      console.log(`SCORE ${g.product_name}: creators=${creator_score} videos=${video_score} fresh=${freshnessScore} age_penalty=${agePenalty} → ${score}`);
+      console.log(`SCORE ${g.product_name}: ${g.viral_videos.length}vv ${g.creators.size}c creators=${creator_score} fresh=${freshnessScore} → ${score}`);
+
       return {
         product_name: g.product_name,
         tiktok_score: score,
-        video_count: g.videos.length,
+        video_count: g.viral_videos.length,        // solo virales
+        video_count_total: g.all_videos.length,    // total incluyendo ruido
         creator_count: g.creators.size,
         hashtag_count: g.hashtags_seen.size,
         total_likes: g.total_likes,
         total_views: g.total_views,
         total_comments: g.total_comments,
         cover_url: g.best_cover,
+        viral_video_urls: (g.best_video_urls || []).slice(0, 5),
         tiktok_search_url: `https://www.tiktok.com/search?q=${encodeURIComponent(g.product_name)}`,
         search_queries: Array.from(g.search_queries_seen),
-        hashtag_count: g.hashtags_seen.size,
         query_count: g.search_queries_seen.size,
         newest_days: g.newest_days,
         oldest_days: g.oldest_days,
-        // Campos para compatibilidad con cazador.html
+        // Compatibilidad con cazador.html
         page_name: g.product_name,
-        ad_copy: `${g.videos.length} vídeos virales · ${g.total_views.toLocaleString()} views · ${g.creators.size} creadores`,
-        video_count_display: g.videos.length,
+        ad_copy: `${g.viral_videos.length} vídeos virales · ${g.total_views.toLocaleString()} views · ${g.creators.size} creadores`,
+        video_count_display: g.viral_videos.length,
         creator_count_display: g.creators.size,
         image_url: g.best_cover,
         days_active: null,
-        total_ads: g.video_count,
-        advertiser_count: g.creator_count,
+        total_ads: g.viral_videos.length,
+        advertiser_count: g.creators.size,
         advertisers_list: Array.from(g.creators).slice(0, 3),
         library_url: `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=US&q=${encodeURIComponent(g.product_name)}&search_type=keyword_unordered`,
         score
