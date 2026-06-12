@@ -151,9 +151,9 @@ function normalizeProduct(name) {
 async function scrapeTikTok(hashtags, videosPerHashtag = 50) {
   console.log(`[TIKTOK] Scraping ${hashtags.length} hashtags × ${videosPerHashtag} vídeos`);
   
-  // Usar los hashtags recibidos por parámetro, sin hardcode
-  const queries = hashtags;
-  const perPage = videosPerHashtag; // controlado por el llamador, no por TEST_MODE
+  // TEST_MODE: 2 queries enfocadas para maximizar repetición con mismo coste (~100 vídeos)
+  const queries = TEST_MODE ? ['amazonfinds', 'amazonmusthaves'] : hashtags;
+  const perPage = videosPerHashtag; // controlado por el llamador
 
   console.log(`[APIFY] Queries: ${queries.join(', ')} | PerPage: ${perPage}`);
 
@@ -295,7 +295,11 @@ Reply ONLY with JSON array, no explanation:
       if (data.error) { console.error('[CLAUDE ERROR]', data.error.message); continue; }
 
       const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
-      const clean = text.replace(/```json|```/g, '').trim();
+      let clean = text.replace(/```json|```/g, '').trim();
+      // Extraer solo el array JSON aunque haya texto extra
+      const arrayMatch = clean.match(/\[[\s\S]*\]/);
+      if (!arrayMatch) { console.error('[CLAUDE] No se encontró array JSON en respuesta:', clean.substring(0,200)); continue; }
+      clean = arrayMatch[0];
       const parsed = JSON.parse(clean);
 
       for (const item of parsed) {
@@ -516,7 +520,7 @@ app.get('/tiktok-products', async (req, res) => {
   const selectedHashtags = hashtags; // ya son exactamente 5 por nicho
   
   const jobId = createJob();
-  const videosPerHashtag = TEST_MODE ? 20 : 100; // TEST_MODE controla el volumen aquí
+  const videosPerHashtag = TEST_MODE ? 50 : 100; // TEST_MODE: 2 queries × 50 = 100 vídeos enfocados
   console.log(`[JOB ${jobId}] Iniciado | Nicho: ${niche} | TEST_MODE: ${TEST_MODE} | ${selectedHashtags.length} hashtags × ${videosPerHashtag} vídeos = ${selectedHashtags.length * videosPerHashtag} vídeos máx`);
   
   // Responder inmediatamente con job_id
