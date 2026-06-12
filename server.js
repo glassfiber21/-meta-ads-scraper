@@ -73,44 +73,45 @@ const SEARCH_QUERIES = {
 };
 
 const GENERIC_BLACKLIST = [
-  // Genéricos absolutos
-  'product', 'products', 'bundle', 'kit', 'tool', 'tools', 'accessory', 'accessories',
-  'equipment', 'device', 'gadget', 'gadgets', 'item', 'thing', 'stuff', 'finds',
-  'must have', 'viral product', 'viral products',
-  // Categorías de cocina demasiado amplias
-  'kitchen gadget', 'kitchen gadgets', 'kitchen tool', 'kitchen tools', 'cooking tool',
-  'cooking gadget', 'cooking gadgets', 'kitchen item', 'kitchen items',
-  // Categorías de belleza/moda
-  'makeup', 'beauty product', 'beauty products', 'hair product', 'hair products',
-  'skincare product', 'hair care', 'beauty',
-  // Categorías de hogar demasiado amplias
-  'home product', 'home products', 'home decor', 'home gadget', 'home gadgets',
-  'cleaning product', 'cleaning products', 'cleaning tool',
-  // Categorías de fitness/tech
-  'fitness equipment', 'tech gadget', 'tech gadgets', 'electronic', 'electronics',
-  // Términos de slicer/cutter genéricos — solos sin modificador específico
-  'vegetable slicer', 'vegetable cutter', 'vegetable peeler', 'vegetable chopper',
-  'food slicer', 'food cutter', 'food chopper', 'salad cutter',
-  // Otros de una sola palabra que son categoría
-  'organizer', 'storage', 'cleaner', 'spray', 'brush',
-  'toy', 'toys', 'pet toy', 'dog toy', 'cat toy',
+  // Solo bloquear términos que NO identifican ningún producto concreto
+  // REGLA: si alguien pudiera venderlo en AliExpress buscando este nombre → NO bloquear
+  'product', 'products', 'bundle', 'kit',
+  'item', 'thing', 'stuff', 'finds', 'must have',
+  'viral product', 'viral products',
+  // Categorías ultra-genéricas sin ningún producto específico detrás
+  'kitchen gadgets', 'kitchen items', 'cooking gadgets',
+  'home products', 'home gadgets',
+  'beauty products', 'hair products', 'skincare products',
+  'cleaning products', 'fitness equipment',
+  'tech gadgets', 'electronics',
+  // Maquillaje puro (no funcional)
+  'makeup', 'beauty', 'hair care',
+  // Comida y suplementos
+  'supplement', 'supplements', 'food product', 'snack',
+  // Una sola palabra completamente vaga
+  'device', 'gadget', 'accessory', 'accessories', 'tool', 'tools',
+  'equipment', 'electronic',
 ];
 
 // Sufijos que solos (con 1 adjetivo genérico) forman un nombre de categoría, no de producto
 // Ej: "Vegetable Slicer" → 2 palabras, última = 'slicer' → genérico
 // Ej: "5-in-1 Mandoline Slicer" → 3+ palabras → específico → NO bloqueado
-const GENERIC_SUFFIXES = ['slicer','cutter','chopper','peeler','grater','organizer','cleaner','gadget','tool','toy','spray'];
+// Sufijos que solos (sin adjetivo) son demasiado genéricos
+// PERO con adjetivo ('Vegetable Chopper', 'Rotary Grater') son productos reales → NO bloquear
+// Solo bloqueamos si el nombre completo tiene exactamente 1 palabra Y es un sufijo
+const GENERIC_SUFFIXES = ['gadget','tool','accessory','device','electronic','appliance'];
 
 function isGeneric(name) {
   if (!name) return true;
   const n = name.toLowerCase().trim();
-  // Coincidencia exacta con blacklist
+  // Coincidencia exacta con blacklist (solo términos ultra-genéricos)
   if (GENERIC_BLACKLIST.some(b => n === b || n === b + 's')) return true;
-  // Nombre de exactamente 2 palabras donde la última es un sufijo genérico
-  // Ej: "Vegetable Slicer" → bloqueado. "Mandoline Slicer" → bloqueado.
-  // Ej: "Garlic Mincer" → 'mincer' no está en GENERIC_SUFFIXES → pasa
+  // Una sola palabra que es un sufijo completamente vacío de significado
   const words = n.split(/\s+/).filter(w => w.length > 1);
-  if (words.length === 2 && GENERIC_SUFFIXES.includes(words[1])) return true;
+  if (words.length === 1 && GENERIC_SUFFIXES.includes(words[0])) return true;
+  // Nombres de 4+ palabras suelen ser descripciones de haul, no productos
+  // Ej: "Various Kitchen And Home Products" → bloquear
+  if (words.length >= 5) return true;
   return false;
 }
 
@@ -119,62 +120,90 @@ function normalizeProduct(name) {
   if (!name || name === 'unknown') return null;
   let n = name.toLowerCase().trim();
   const aliases = {
+    // Ice cream
     'ice cream machine': 'Ice Cream Maker',
     'ice cream maker machine': 'Ice Cream Maker',
     'mini ice cream maker': 'Ice Cream Maker',
     'portable ice cream maker': 'Ice Cream Maker',
+    // Air fryer
     'air fryer basket': 'Air Fryer',
     'air fryer accessories': 'Air Fryer',
     'mini air fryer': 'Air Fryer',
-    'kitchen gadget': 'Kitchen Gadgets',
-    'kitchen tool': 'Kitchen Gadgets',
-    'cooking gadget': 'Kitchen Gadgets',
+    // Projector
     'galaxy light projector': 'Galaxy Projector',
     'star projector light': 'Galaxy Projector',
+    // Vacuum
     'robot vacuum cleaner': 'Robot Vacuum',
     'robotic vacuum': 'Robot Vacuum',
+    // Blender
     'portable blender bottle': 'Portable Blender',
-    'mini blender': 'Portable Blender',
-    'snack spinner tray': 'Snack Spinner',
-    'rotating snack tray': 'Snack Spinner',
-    'electric wine opener': 'Wine Opener',
-    'automatic wine opener': 'Wine Opener',
-    'pet hair remover': 'Pet Hair Remover',
-    'dog hair remover': 'Pet Hair Remover',
-    'cat hair remover': 'Pet Hair Remover',
-    // Steamer variants
-    'portable handheld steamer': 'Handheld Steamer',
-    'handheld steamer iron': 'Handheld Steamer',
-    'travel steamer': 'Handheld Steamer',
-    'garment steamer': 'Handheld Steamer',
-    'clothes steamer': 'Handheld Steamer',
-    'fabric steamer': 'Handheld Steamer',
-    // Fan variants
-    'portable mini fan': 'Portable Fan',
-    'handheld fan': 'Portable Fan',
-    'personal fan': 'Portable Fan',
-    'desk fan': 'Portable Fan',
-    'clip on fan': 'Portable Fan',
-    // Chopper/slicer variants
-    'vegetable cutter': 'Vegetable Chopper',
+    // ── GARLIC / GINGER MINCER FAMILY ──────────────────────────────────────
+    // Todos son el mismo gadget: prensador/picador de ajo redondo de plástico
+    'garlic chopper': 'Garlic Mincer',
+    'garlic press': 'Garlic Mincer',
+    'garlic mincer': 'Garlic Mincer',
+    'ginger mincer': 'Garlic Mincer',
+    'ginger juice mincer': 'Garlic Mincer',
+    'garlic juice mincer': 'Garlic Mincer',
+    'ginger juicer mincer': 'Garlic Mincer',
+    'garlic ginger mincer': 'Garlic Mincer',
+    'garlic and ginger mincer': 'Garlic Mincer',
+    'ginger and garlic mincer': 'Garlic Mincer',
+    'garlic mincer ginger juicer': 'Garlic Mincer',
+    'ginger juice and garlic mincer': 'Garlic Mincer',
+    'garlic mincer/ginger juicer': 'Garlic Mincer',
+    'rechargeable mini chopper and juicer': 'Garlic Mincer',
+    'rechargeable chopper and juicer': 'Garlic Mincer',
+    'garlic press juicer': 'Garlic Mincer',
+    // ── VEGETABLE CHOPPER FAMILY ────────────────────────────────────────────
+    'vegetable chopper': 'Vegetable Chopper',
+    'commercial grade chopper': 'Vegetable Chopper',
+    'commercial-grade vegetable chopper': 'Vegetable Chopper',
+    'vegetable food chopper': 'Vegetable Chopper',
+    'multifunctional vegetable chopper': 'Vegetable Chopper',
+    'multifunctional vegetable fruit chopper': 'Vegetable Chopper',
+    'vegetable chopper slicer': 'Vegetable Chopper',
     'food chopper': 'Vegetable Chopper',
-    'manual food chopper': 'Vegetable Chopper',
-    'veggie chopper': 'Vegetable Chopper',
+    'manual vegetable chopper': 'Vegetable Chopper',
+    'electric vegetable chopper': 'Vegetable Chopper',
+    'vegetable dicer': 'Vegetable Chopper',
     'onion chopper': 'Vegetable Chopper',
-    // Blender variants
-    'bullet blender': 'Portable Blender',
-    'personal blender': 'Portable Blender',
-    'smoothie blender': 'Portable Blender',
-    // Storage variants
-    'storage container': 'Storage Containers',
-    'food storage container': 'Storage Containers',
-    'airtight container': 'Storage Containers',
-    'meal prep container': 'Storage Containers',
-    // Cleaner variants
+    // ── GRATER FAMILY ───────────────────────────────────────────────────────
+    'rotary cheese grater': 'Rotary Grater',
+    'handheld rotary grater': 'Rotary Grater',
+    'rotary grater': 'Rotary Grater',
+    'cheese grater': 'Rotary Grater',
+    'rotary cheese grater with 3 blades': 'Rotary Grater',
+    'cheese vegetable grater': 'Rotary Grater',
+    'handheld rotary cheese grater': 'Rotary Grater',
+    // ── STEAM CLEANER FAMILY ────────────────────────────────────────────────
     'steam cleaner': 'Steam Cleaner',
     'portable steam cleaner': 'Steam Cleaner',
     'handheld steam cleaner': 'Steam Cleaner',
-    'electric steam cleaner': 'Steam Cleaner',
+    'steam mop': 'Steam Cleaner',
+    // ── KITCHEN EXHAUST FAN ─────────────────────────────────────────────────
+    'kitchen exhaust fan': 'Kitchen Exhaust Fan',
+    'kitchen fan': 'Kitchen Exhaust Fan',
+    'cooking exhaust fan': 'Kitchen Exhaust Fan',
+    // ── HAIR STRAIGHTENER ───────────────────────────────────────────────────
+    'hair straightener': 'Hair Straightener',
+    'flat iron': 'Hair Straightener',
+    'hair flat iron': 'Hair Straightener',
+    'hair straightening iron': 'Hair Straightener',
+    // ── FRUIT SPINNER ───────────────────────────────────────────────────────
+    'fruit spinner': 'Fruit Spinner',
+    'salad spinner': 'Fruit Spinner',
+    'fruit spinner salad spinner': 'Fruit Spinner',
+    'produce strainer and container': 'Fruit Spinner',
+    'produce strainer and container (2-in-1)': 'Fruit Spinner',
+    // ── WATER GUN ───────────────────────────────────────────────────────────
+    'high-pressure water gun': 'High Pressure Water Gun',
+    'high pressure water gun': 'High Pressure Water Gun',
+    'pressure water gun': 'High Pressure Water Gun',
+    // ── CUTTING BOARD ───────────────────────────────────────────────────────
+    'stainless steel cutting board': 'Stainless Steel Cutting Board',
+    'cutting board sanitizing station': 'Stainless Steel Cutting Board',
+    'cutting board drying station': 'Stainless Steel Cutting Board',
   };
   if (aliases[n]) return aliases[n];
   for (const [alias, canonical] of Object.entries(aliases)) {
@@ -195,9 +224,10 @@ function normalizeProduct(name) {
 async function scrapeTikTok(hashtags, videosPerHashtag = 50) {
   console.log(`[TIKTOK] Scraping ${hashtags.length} hashtags × ${videosPerHashtag} vídeos`);
   
-  // TEST_MODE: los 2 mejores hashtags de descubrimiento de producto único
-  // 'tiktokmademebuyit' y 'kitchengadgets' → vídeos de 1 producto → grupos naturales de 10-30
-  const queries = TEST_MODE ? ['tiktokmademebuyit', 'kitchengadgets'] : hashtags;
+  // TEST_MODE: usar hashtags genéricos SOLO para Fase 1 (descubrimiento)
+  // Si la query tiene espacios → es un nombre de producto (Fase 2) → nunca sobrescribir
+  const isFase2Validation = hashtags.some(q => q.includes(' '));
+  const queries = (TEST_MODE && !isFase2Validation) ? ['tiktokmademebuyit', 'kitchengadgets'] : hashtags;
   const perPage = videosPerHashtag; // controlado por el llamador
 
   console.log(`[APIFY] Queries: ${queries.join(', ')} | PerPage: ${perPage}`);
@@ -342,11 +372,23 @@ Reply ONLY with a JSON array, no explanation, no markdown:
 
       const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
       let clean = text.replace(/```json|```/g, '').trim();
-      // Extraer solo el array JSON aunque haya texto extra
-      const arrayMatch = clean.match(/\[[\s\S]*\]/);
-      if (!arrayMatch) { console.error('[CLAUDE] No se encontró array JSON en respuesta:', clean.substring(0,200)); continue; }
-      clean = arrayMatch[0];
-      const parsed = JSON.parse(clean);
+      // Estrategia robusta: intentar múltiples patrones para extraer el array JSON
+      let parsed = null;
+      const strategies = [
+        // 1. Array directo
+        () => { const m = clean.match(/\[\s*\{[\s\S]*\}\s*\]/); return m ? JSON.parse(m[0]) : null; },
+        // 2. Desde el primer [ hasta el último ]
+        () => { const s = clean.indexOf('['); const e = clean.lastIndexOf(']'); return s>=0&&e>s ? JSON.parse(clean.slice(s,e+1)) : null; },
+        // 3. Texto completo (ya es JSON puro)
+        () => JSON.parse(clean),
+      ];
+      for (const strategy of strategies) {
+        try { parsed = strategy(); if (parsed && Array.isArray(parsed) && parsed.length > 0) break; } catch(e) {}
+      }
+      if (!parsed || !Array.isArray(parsed)) {
+        console.error('[CLAUDE] No se pudo parsear respuesta. Preview:', clean.substring(0,150));
+        continue;
+      }
 
       for (const item of parsed) {
         const r = { 
@@ -792,6 +834,66 @@ app.get('/tiktok-products', async (req, res) => {
   })();
 });
 
+// ── Endpoint: validar señales en reserva ─────────────────────────────────────
+app.post('/validate-signals', async (req, res) => {
+  const { signals: pendingSignals = [] } = req.body;
+  if (!pendingSignals.length) return res.json({ success: false, error: 'No signals provided' });
+  const jobId = createJob();
+  res.json({ success: true, job_id: jobId, message: `Validando ${Math.min(pendingSignals.length,10)} señales en reserva` });
+  (async () => {
+    try {
+      const FASE2_MAX = 10;
+      const toValidate = pendingSignals.slice(0, FASE2_MAX);
+      const stillPending = pendingSignals.slice(FASE2_MAX);
+      updateJob(jobId, { progress: `Validando ${toValidate.length} señales en reserva...` });
+      const validated = [];
+      for (const signal of toValidate) {
+        console.log(`[RESERVA] → "${signal.product_name}" | dropship:${signal.dropship_score||'?'}/100 | ${(signal.total_views||0).toLocaleString()} views`);
+        updateJob(jobId, { progress: `Validando: ${signal.product_name}...` });
+        try {
+          const vv = await scrapeTikTok([signal.product_name], 20);
+          if (!vv.length) continue;
+          const vm = await identifyProductsBatch(vv);
+          const confirming = vv.filter(v => {
+            const p = vm[v.id]; if (!p || p.product === 'unknown') return false;
+            const norm = normalizeProduct(p.product);
+            const sn = signal.product_name.toLowerCase();
+            return norm && (norm.toLowerCase().includes(sn.split(' ')[0]) || sn.includes(norm.toLowerCase().split(' ')[0]));
+          });
+          const viral = confirming.filter(v => (v.diggCount||0) >= 500 || (v.playCount||0) >= 10000);
+          const creators = new Set(confirming.map(v => v.authorMeta?.name || v.author || '')).size;
+          console.log(`[RESERVA] "${signal.product_name}": ${viral.length}vv ${creators}c`);
+          if (viral.length >= 2 && creators >= 2) {
+            validated.push({
+              ...signal, label: 'Validado', phase2_viral: viral.length, phase2_creators: creators,
+              video_count: (signal.video_count||1) + viral.length,
+              creator_count: (signal.creator_count||1) + creators,
+              score: (signal.score||50) + 10,
+              ad_copy: `${(signal.video_count||1)+viral.length} vídeos virales · ${(signal.total_views||0).toLocaleString()} views · ${(signal.creator_count||1)+creators} creadores`,
+              page_name: signal.product_name, total_ads: (signal.video_count||1)+viral.length,
+              advertiser_count: (signal.creator_count||1)+creators,
+              library_url: `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=US&q=${encodeURIComponent(signal.product_name)}&search_type=keyword_unordered`,
+              tiktok_search_url: `https://www.tiktok.com/search?q=${encodeURIComponent(signal.product_name)}`
+            });
+            console.log(`[RESERVA] ✓ PROMOVIDO: ${signal.product_name}`);
+          }
+        } catch(e) { console.error(`[RESERVA] Error ${signal.product_name}:`, e.message); }
+      }
+      updateJob(jobId, {
+        status: 'done',
+        result: {
+          success: true, ads: validated.sort((a,b) => b.score-a.score), total_products: validated.length,
+          pipeline_stats: { signals_validated: validated.length, signals_pending_count: stillPending.length },
+          pending_signals: stillPending
+        }
+      });
+    } catch(e) {
+      updateJob(jobId, { status: 'error', error: e.message, result: { success: false, error: e.message, ads: [] } });
+    }
+  })();
+});
+
+
 // Consultar estado de un job
 // ── Endpoint: analizar JSON ya descargados (sin gastar Apify) ────────────────
 // Recibe un array de vídeos de TikTok (formato Apify) ya descargados
@@ -843,20 +945,44 @@ app.post('/analyze-cached', async (req, res) => {
           days_ago: s.newest_days, tier: s.tier
         }));
 
-        const dropshipPrompt = `You are a dropshipping expert evaluating products for the European market (Spain, France, Germany, Italy).
-A seller in Europe wants to find products that are viral in the USA and replicate them in Europe 2-4 weeks later.
+        const dropshipPrompt = `You are a dropshipping expert for the Spanish market (TikTok España).
+A Spanish seller finds products viral in the USA and sells them in Spain 2-4 weeks later via TikTok videos.
 
-Evaluate each product for dropshipping viability:
+Evaluate each product's DROPSHIPPING VIABILITY for Spain:
 
 Products to evaluate:
 ${JSON.stringify(signalList, null, 2)}
 
-HIGH SCORE (70-100): Kitchen gadgets, home organization, cleaning tools, garden tools, pet accessories, bathroom gadgets, travel accessories. No dominant brand, sourced from China/AliExpress, price €15-€80, demonstrable in video.
-LOW SCORE (0-40): Branded products (Ninja, Apple, etc.), fashion/clothing, food/supplements, services/apps, very cheap (<€5) or very expensive (>€150).
-MEDIUM (40-70): Works but has complications (fragile, bulky, highly seasonal).
+─── INCLUDE (score 60-100) ───────────────────────────────────────────────
+✅ Kitchen gadgets, home organization, cleaning tools, bathroom gadgets
+✅ Garden tools, pet accessories, travel accessories, outdoor gadgets  
+✅ Generic electronics WITHOUT dominant brand: LED lights, portable fans,
+   phone holders, cable organizers, mini projectors, RGB accessories,
+   generic earbuds/headphones (no Apple/JBL/Sony branding)
+✅ Functional beauty tools WITHOUT brand: jade rollers, facial massagers,
+   hair removal devices, teeth whitening tools, body shapers/massagers
+✅ Any physical product: no dominant brand, sourceable AliExpress €3-25,
+   retail price €15-€80, demonstrable in a 15-second TikTok video
 
-Reply ONLY with JSON array:
-[{"name":"<product name>","dropship_score":<0-100>,"reason":"<1 sentence>","viable":true|false}]`;
+─── EXCLUDE (score 0-40) ─────────────────────────────────────────────────
+❌ Clothing and footwear (size issues, high returns)
+❌ Pure makeup: foundation, eyeshadow, lipstick (brand/color dependent)
+❌ Food, drinks, supplements (customs, regulations)
+❌ Branded electronics: Apple, Samsung, Sony, JBL, Bose, Dyson, Ninja...
+❌ Complex electronics requiring warranty/support: laptops, tablets, consoles
+❌ Services, apps, digital products, tutorials
+❌ Trademarked/licensed products (Disney, Nike, etc.)
+
+─── SCORING ──────────────────────────────────────────────────────────────
+90-100: Perfect for TikTok dropshipping Spain (kitchen gadget, home tool, 
+        generic electronic accessory, functional beauty device)
+70-89:  Good candidate, minor complications (slightly seasonal, bulky)
+50-69:  Possible but risky (niche market, complex logistics)
+30-49:  Problematic (fashion risk, brand adjacent, hard to source)
+0-29:   Discard (clothing, branded, supplement, service, pure makeup)
+
+Reply ONLY with JSON array, no explanation, no markdown:
+[{"name":"<product name>","dropship_score":<0-100>,"reason":"<1 sentence in Spanish>","viable":true|false}]`;
 
         let dropshipScores = {};
         try {
@@ -1117,4 +1243,5 @@ app.get('/scrape-ads', async (req, res) => {
   await handleMetaScrape({ country, niche, min_days_active: parseInt(min_days_active), limit: parseInt(limit) }, res);
 });
 
-app.listen(PORT, () => console.log(`Cazador de Productos v5.0 en puerto ${PORT}`));
+app.listen(PORT, () => console.log(`Cazador de Productos v6.0 (isFase2Fix + dropship ES) en puerto ${PORT}`));
+  console.log('[CONFIG] TEST_MODE:', TEST_MODE, '| isFase2Fix: ACTIVE | Dropship: ES');
