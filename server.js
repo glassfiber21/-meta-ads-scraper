@@ -561,6 +561,97 @@ function groupAndScore(videos, productMap) {
     .sort((a, b) => b.score - a.score);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// groupAndScoreV2 — Pipeline de 2 fases
+// Devuelve { confirmed, signals }
+//   confirmed: productos con 2+ vídeos virales de 2+ creadores (listos para mostrar)
+//   signals:   productos con 1 vídeo viral de >100k views (candidatos para Fase 2)
+// ─────────────────────────────────────────────────────────────────────────────
+function groupAndScoreV2(videos, productMap) {
+  // Reutilizar la lógica de agrupación existente
+  const allProducts = groupAndScore(videos, productMap);
+
+  // También construir grupos completos para detectar señales únicas
+  // (groupAndScore ya filtra los que no llegan a 2vv/2c — necesitamos los de 1vv)
+  const groups = {};
+  for (const video of videos) {
+    const raw = productMap[video.id];
+    if (!raw || raw.product === 'unknown' || raw.confidence < 0.6) continue;
+    if ((raw.specificityScore || 0) < 60) continue;
+    if (isGeneric(raw.product)) continue;
+    const normalized = normalizeProduct(raw.product);
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (!groups[key]) groups[key] = { product_name: normalized, viral_videos: [], creators: new Set(), total_views: 0, total_likes: 0, newest_days: null };
+    const likes = parseInt(video.diggCount || 0);
+    const views = parseInt(video.playCount || 0);
+    const isViral = likes >= 500 || views >= 10000;
+    if (isViral) {
+      groups[key].viral_videos.push(video);
+      groups[key].creators.add(video.authorMeta?.name || video.author || '');
+      groups[key].total_views += views;
+      groups[key].total_likes += likes;
+      const createTime = video.createTime || video.createTimeISO;
+      if (createTime) {
+        const daysAgo = Math.floor((Date.now() - new Date(typeof createTime === 'number' ? createTime * 1000 : createTime).getTime()) / 86400000);
+        if (!isNaN(daysAgo) && (groups[key].newest_days === null || daysAgo < groups[key].newest_days)) groups[key].newest_days = daysAgo;
+      }
+    }
+  }
+
+  // Separar: señales únicas = exactamente 1 vídeo viral con >100k views
+  const SIGNAL_MIN_VIEWS = 100000;
+  const signals = [];
+  for (const g of Object.values(groups)) {
+    const vv = g.viral_videos.length;
+    const c = g.creators.size;
+    // Solo los que NO pasaron el filtro de confirmed (1 vídeo viral O 1 creador)
+    // Y que tengan views suficientes para ser una señal real
+    if (vv === 1 && c === 1 && g.total_views >= SIGNAL_MIN_VIEWS) {
+      const newestDays = g.newest_days || 999;
+      const freshnessScore = newestDays <= 7 ? 100 : newestDays <= 14 ? 80 : newestDays <= 30 ? 60 : 40;
+      const views_score = Math.round(Math.min(g.total_views, 2000000) / 2000000 * 100);
+      const score = Math.round((views_score * 0.6) + (freshnessScore * 0.4));
+      signals.push({
+        product_name: g.product_name,
+        tiktok_score: score,
+        score,
+        video_count: 1,
+        creator_count: 1,
+        total_views: g.total_views,
+        total_likes: g.total_likes,
+        newest_days: g.newest_days,
+        label: 'Señal única',
+        signal_tier: g.total_views >= 1000000 ? 'mega' : g.total_views >= 500000 ? 'alta' : 'media',
+        // Compatibilidad con cazador.html
+        page_name: g.product_name,
+        ad_copy: `1 vídeo viral · ${g.total_views.toLocaleString()} views · pendiente validación`,
+        video_count_display: 1,
+        creator_count_display: 1,
+        image_url: '',
+        days_active: null,
+        total_ads: 1,
+        advertiser_count: 1,
+        advertisers_list: Array.from(g.creators).slice(0, 3),
+        library_url: `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=US&q=${encodeURIComponent(g.product_name)}&search_type=keyword_unordered`,
+        tiktok_search_url: `https://www.tiktok.com/search?q=${encodeURIComponent(g.product_name)}`
+      });
+    }
+  }
+
+  // Ordenar señales por views descendente (las más virales primero para validar)
+  signals.sort((a, b) => b.total_views - a.total_views);
+
+  console.log(`[FASE1] Confirmados directos: ${allProducts.length} | Señales únicas (>100k views): ${signals.length}`);
+  if (signals.length > 0) {
+    console.log('[FASE1] Top señales:');
+    signals.slice(0, 8).forEach(s => console.log(`  ${s.product_name}: ${s.total_views.toLocaleString()} views [${s.signal_tier}]`));
+  }
+
+  return { confirmed: allProducts, signals };
+}
+
+
 // ENDPOINT PRINCIPAL: lanza job asíncrono y devuelve job_id inmediatamente
 app.get('/tiktok-products', async (req, res) => {
   const { niche = 'general', limit = 10 } = req.query;
@@ -584,47 +675,117 @@ app.get('/tiktok-products', async (req, res) => {
   // Responder inmediatamente con job_id
   res.json({ success: true, job_id: jobId, status: 'running', message: 'Búsqueda iniciada' });
   
-  // Procesar en background
+  // ─── PIPELINE DE 2 FASES ────────────────────────────────────────────────────
+  // FASE 1: 100 vídeos genéricos → detectar productos → separar en dos cubos:
+  //   A) Replicados: 2+ vídeos virales de 2+ creadores distintos → mostrar directamente
+  //   B) Señales únicas: 1 vídeo viral con >100k views → validar con Fase 2
+  // FASE 2 (solo para señales únicas): buscar el producto por nombre (20 vídeos)
+  //   → Si aparecen 2+ vídeos virales nuevos → promover a tarjeta confirmada
+  //   → Si no → descartar
+  // ─────────────────────────────────────────────────────────────────────────────
   (async () => {
     try {
-      updateJob(jobId, { progress: 'Conectando con TikTok...' });
+      // ── FASE 1 ──────────────────────────────────────────────────────────────
+      updateJob(jobId, { progress: 'Fase 1: Escaneando tendencias TikTok...' });
       const videos = await scrapeTikTok(selectedHashtags, videosPerHashtag);
       if (!videos.length) { updateJob(jobId, { status: 'done', result: { success: false, error: 'No se obtuvieron vídeos', ads: [] } }); return; }
-      
+
       console.log(`[JOB ${jobId}] Vídeos TikTok: ${videos.length}`);
-      updateJob(jobId, { progress: `${videos.length} vídeos obtenidos. Analizando con IA...` });
-      
+      updateJob(jobId, { progress: `${videos.length} vídeos obtenidos. Identificando productos...` });
+
       const productMap = await identifyProductsBatch(videos);
-      const identified = Object.keys(productMap).length;
-      console.log(`[JOB ${jobId}] Productos Claude: ${identified}`);
-      updateJob(jobId, { progress: `${identified} productos identificados. Agrupando...` });
-      
-      const products = groupAndScore(videos, productMap);
-      console.log(`[JOB ${jobId}] Productos agrupados: ${products.length}`);
-      
-      // Stats detalladas del pipeline
-      const stats_generic = Object.values(productMap).filter(p => p.product !== 'unknown' && (p.specificityScore||0) < 60).length;
+      console.log(`[JOB ${jobId}] Productos Claude: ${Object.keys(productMap).length}`);
+      updateJob(jobId, { progress: 'Agrupando y filtrando...' });
+
+      // groupAndScore devuelve dos arrays: replicados + señales únicas
+      const { confirmed, signals } = groupAndScoreV2(videos, productMap);
+      console.log(`[JOB ${jobId}] Confirmados (2+vv 2+c): ${confirmed.length} | Señales únicas (>100k views): ${signals.length}`);
+
+      // ── FASE 2: validar señales únicas ──────────────────────────────────────
+      const validated = [];
+      if (signals.length > 0) {
+        updateJob(jobId, { progress: `Fase 2: Validando ${signals.length} señales únicas...` });
+        console.log(`[FASE2] Validando ${signals.length} señales: ${signals.map(s => s.product_name).join(', ')}`);
+
+        for (const signal of signals.slice(0, 5)) { // máx 5 validaciones para controlar coste
+          console.log(`[FASE2] Buscando: "${signal.product_name}" (${signal.total_views.toLocaleString()} views)`);
+          try {
+            // Buscar 20 vídeos específicos del producto por nombre
+            const validationVideos = await scrapeTikTok([signal.product_name], 20);
+            if (!validationVideos.length) { console.log(`[FASE2] Sin resultados para: ${signal.product_name}`); continue; }
+
+            const validationMap = await identifyProductsBatch(validationVideos);
+            // Contar cuántos de los vídeos nuevos confirman el mismo producto
+            const confirming = validationVideos.filter(v => {
+              const p = validationMap[v.id];
+              if (!p || p.product === 'unknown') return false;
+              const norm = normalizeProduct(p.product);
+              const signalNorm = signal.product_name.toLowerCase();
+              return norm && (norm.toLowerCase().includes(signalNorm.split(' ')[0]) || signalNorm.includes(norm.toLowerCase().split(' ')[0]));
+            });
+            const viralConfirming = confirming.filter(v => (v.diggCount || 0) >= 500 || (v.playCount || 0) >= 10000);
+            const newCreators = new Set(confirming.map(v => v.authorMeta?.name || v.author || '')).size;
+
+            console.log(`[FASE2] "${signal.product_name}": ${viralConfirming.length} vídeos virales confirmados de ${newCreators} creadores`);
+
+            if (viralConfirming.length >= 2 && newCreators >= 2) {
+              // Promover: añadir señal + vídeos de validación al confirmed
+              const promoted = {
+                ...signal,
+                validation_source: 'fase2',
+                phase2_viral_count: viralConfirming.length,
+                phase2_creator_count: newCreators,
+                // Actualizar métricas combinando Fase1 + Fase2
+                video_count: signal.video_count + viralConfirming.length,
+                creator_count: signal.creator_count + newCreators,
+                ad_copy: `${signal.video_count + viralConfirming.length} vídeos virales · ${signal.total_views.toLocaleString()} views · ${signal.creator_count + newCreators} creadores`,
+                video_count_display: signal.video_count + viralConfirming.length,
+                creator_count_display: signal.creator_count + newCreators,
+                label: 'Validado'
+              };
+              validated.push(promoted);
+              console.log(`[FASE2] ✓ PROMOVIDO: ${signal.product_name}`);
+            } else {
+              console.log(`[FASE2] ✗ DESCARTADO: ${signal.product_name} (insuficientes confirmaciones)`);
+            }
+          } catch (e) {
+            console.error(`[FASE2] Error validando ${signal.product_name}:`, e.message);
+          }
+        }
+      }
+
+      // Combinar: confirmados directos + validados en fase 2
+      const allProducts = [
+        ...confirmed.map(p => ({ ...p, label: p.label || 'Trending' })),
+        ...validated
+      ].sort((a, b) => b.score - a.score).slice(0, parseInt(limit));
+
+      console.log(`[JOB ${jobId}] Productos finales: ${allProducts.length} (${confirmed.length} directos + ${validated.length} validados)`);
+
+      // Stats pipeline
       const stats_unknown = Object.values(productMap).filter(p => p.product === 'unknown').length;
       const stats_valid = Object.values(productMap).filter(p => p.product !== 'unknown' && (p.specificityScore||0) >= 60).length;
       console.log('=== STATS PIPELINE ===');
       console.log(`Vídeos obtenidos: ${videos.length}`);
-      console.log(`Productos identificados por Claude: ${Object.keys(productMap).length}`);
-      console.log(`Descartados: unknown=${stats_unknown} | baja especificidad=${stats_generic}`);
-      console.log(`Productos válidos para agrupar: ${stats_valid}`);
-      console.log(`Productos agrupados (antes filtro): ${products.length + (products.length > 0 ? 0 : 0)}`);
-      console.log(`Productos finales mostrados: ${products.length}`);
-      console.log('PRODUCTS LENGTH:', products.length);
+      console.log(`Productos Claude: ${Object.keys(productMap).length} | unknown: ${stats_unknown} | válidos: ${stats_valid}`);
+      console.log(`Señales únicas encontradas: ${signals.length} | Validadas en Fase 2: ${validated.length}`);
+      console.log(`[JOB ${jobId}] DONE | ${allProducts.length} productos de ${videos.length} vídeos`);
 
-      const result = {
-        success: true, source: 'tiktok', niche,
-        total_videos: videos.length,
-        total_products: products.length,
-        ads: products.slice(0, parseInt(limit)),
-        debug: { identified, cache_size: productCache.size }
-      };
-      updateJob(jobId, { status: 'done', result, progress: `Completado: ${products.length} productos` });
-      console.log(`[JOB ${jobId}] DONE | ${products.length} productos de ${videos.length} vídeos`);
-    } catch(e) {
+      updateJob(jobId, {
+        status: 'done',
+        result: {
+          success: true,
+          ads: allProducts,
+          total_products: allProducts.length,
+          pipeline_stats: {
+            videos_scraped: videos.length,
+            confirmed_direct: confirmed.length,
+            signals_found: signals.length,
+            signals_validated: validated.length
+          }
+        }
+      });
+    } catch (e) {
       console.error(`[JOB ${jobId}] ERROR:`, e.message);
       updateJob(jobId, { status: 'error', error: e.message, result: { success: false, error: e.message, ads: [] } });
     }
