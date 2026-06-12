@@ -843,20 +843,20 @@ app.post('/analyze-cached', async (req, res) => {
           days_ago: s.newest_days, tier: s.tier
         }));
 
-        const dropshipPrompt = \`You are a dropshipping expert evaluating products for the European market (Spain, France, Germany, Italy).
+        const dropshipPrompt = `You are a dropshipping expert evaluating products for the European market (Spain, France, Germany, Italy).
 A seller in Europe wants to find products that are viral in the USA and replicate them in Europe 2-4 weeks later.
 
 Evaluate each product for dropshipping viability:
 
 Products to evaluate:
-\${JSON.stringify(signalList, null, 2)}
+${JSON.stringify(signalList, null, 2)}
 
 HIGH SCORE (70-100): Kitchen gadgets, home organization, cleaning tools, garden tools, pet accessories, bathroom gadgets, travel accessories. No dominant brand, sourced from China/AliExpress, price €15-€80, demonstrable in video.
 LOW SCORE (0-40): Branded products (Ninja, Apple, etc.), fashion/clothing, food/supplements, services/apps, very cheap (<€5) or very expensive (>€150).
 MEDIUM (40-70): Works but has complications (fragile, bulky, highly seasonal).
 
 Reply ONLY with JSON array:
-[{"name":"<product name>","dropship_score":<0-100>,"reason":"<1 sentence>","viable":true|false}]\`;
+[{"name":"<product name>","dropship_score":<0-100>,"reason":"<1 sentence>","viable":true|false}]`;
 
         let dropshipScores = {};
         try {
@@ -873,7 +873,7 @@ Reply ONLY with JSON array:
             JSON.parse(dsMatch[0]).forEach(r => { dropshipScores[r.name.toLowerCase()] = r; });
             console.log('[CACHED] Dropship scores:');
             Object.values(dropshipScores).sort((a,b)=>b.dropship_score-a.dropship_score).forEach(r =>
-              console.log(\`  \${r.dropship_score>=70?'✓':r.dropship_score>=40?'~':'✗'} \${r.name}: \${r.dropship_score}/100 — \${r.reason}\`)
+              console.log(`  ${r.dropship_score>=70?'✓':r.dropship_score>=40?'~':'✗'} ${r.name}: ${r.dropship_score}/100 — ${r.reason}`)
             );
           }
         } catch(e) { console.error('[CACHED] Dropship eval error:', e.message); }
@@ -887,7 +887,7 @@ Reply ONLY with JSON array:
 
         const viable = enriched.filter(s=>s.dropship_score>=50).sort((a,b)=>b.combined_score-a.combined_score);
         const discarded = enriched.filter(s=>s.dropship_score<50);
-        console.log(\`[CACHED] Viables: \${viable.length} | Descartados por dropshipping: \${discarded.length}\`);
+        console.log(`[CACHED] Viables: ${viable.length} | Descartados por dropshipping: ${discarded.length}`);
 
         const FASE2_MAX = 10;
         signalsForFase2 = viable.slice(0, FASE2_MAX);
@@ -895,10 +895,10 @@ Reply ONLY with JSON array:
 
         // PASO 4: Fase 2 — validar cada señal con 20 vídeos frescos de Apify
         if (signalsForFase2.length > 0) {
-          updateJob(jobId, { progress: \`Fase 2: Validando \${signalsForFase2.length} productos en TikTok...\` });
+          updateJob(jobId, { progress: `Fase 2: Validando ${signalsForFase2.length} productos en TikTok...` });
           for (const signal of signalsForFase2) {
-            console.log(\`[CACHED F2] Buscando: "\${signal.product_name}" (dropship:\${signal.dropship_score} views:\${signal.total_views.toLocaleString()})\`);
-            updateJob(jobId, { progress: \`Validando: \${signal.product_name}...\` });
+            console.log(`[CACHED F2] Buscando: "${signal.product_name}" (dropship:${signal.dropship_score} views:${signal.total_views.toLocaleString()})`);
+            updateJob(jobId, { progress: `Validando: ${signal.product_name}...` });
             try {
               const vv = await scrapeTikTok([signal.product_name], 20);
               if (!vv.length) continue;
@@ -911,16 +911,16 @@ Reply ONLY with JSON array:
               });
               const viral = confirming.filter(v=>(v.diggCount||0)>=500||(v.playCount||0)>=10000);
               const creators = new Set(confirming.map(v=>v.authorMeta?.name||v.author||'')).size;
-              console.log(\`[CACHED F2] "\${signal.product_name}": \${viral.length}vv \${creators}c\`);
+              console.log(`[CACHED F2] "${signal.product_name}": ${viral.length}vv ${creators}c`);
               if (viral.length>=2&&creators>=2) {
                 validated.push({ ...signal, label:'Validado', phase2_viral:viral.length, phase2_creators:creators,
                   video_count:signal.video_count+viral.length, creator_count:signal.creator_count+creators,
                   score:signal.combined_score+10, tiktok_score:signal.combined_score+10,
-                  ad_copy:\`\${signal.video_count+viral.length} vídeos virales · \${signal.total_views.toLocaleString()} views · \${signal.creator_count+creators} creadores\`,
+                  ad_copy:`${signal.video_count+viral.length} vídeos virales · ${signal.total_views.toLocaleString()} views · ${signal.creator_count+creators} creadores`,
                   dropship_insight:signal.dropship_reason });
-                console.log(\`[CACHED F2] ✓ PROMOVIDO: \${signal.product_name}\`);
+                console.log(`[CACHED F2] ✓ PROMOVIDO: ${signal.product_name}`);
               }
-            } catch(e) { console.error(\`[CACHED F2] Error \${signal.product_name}:\`, e.message); }
+            } catch(e) { console.error(`[CACHED F2] Error ${signal.product_name}:`, e.message); }
           }
         }
       }
@@ -930,7 +930,7 @@ Reply ONLY with JSON array:
         ...validated
       ].sort((a,b)=>b.score-a.score).slice(0,parseInt(limit));
 
-      console.log(\`[CACHED] DONE | \${allProducts.length} productos finales\`);
+      console.log(`[CACHED] DONE | ${allProducts.length} productos finales`);
       updateJob(jobId, {
         status: 'done',
         result: {
