@@ -117,6 +117,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <button class="cta" id="cta" onclick="run()">
     🎯 <span id="ctxt">Buscar productos ganadores en Meta Ads</span>
   </button>
+  <div id="cached-area" style="margin-top:10px;display:none;">
+    <label for="cached-file-input" id="cached-label" style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:11px 18px;border-radius:10px;cursor:pointer;background:#0f172a;border:1px dashed #334155;color:#64748b;font-size:13px;font-weight:500;box-sizing:border-box;transition:all 0.2s;" onmouseover="this.style.borderColor='#f97316';this.style.color='#fb923c'" onmouseout="this.style.borderColor='#334155';this.style.color='#64748b'">
+      📂 <span id="cached-label-text">Analizar JSON guardados (sin gastar Apify)</span>
+    </label>
+    <input type="file" id="cached-file-input" accept=".json" multiple style="display:none" onchange="loadCachedFiles(event)">
+  </div>
   <div class="checks">
     <span class="chk">Margen ≥ x3</span>
     <span class="chk">Anuncios verificados</span>
@@ -201,6 +207,7 @@ function setSource(s){
   document.getElementById('src-meta').style.borderColor=s==='meta'?'#ea580c':'#2a1800';
   document.getElementById('src-meta').style.background=s==='meta'?'#1c0e00':'#120900';
   document.getElementById('ctxt').textContent=s==='tiktok'?'Buscar productos virales en TikTok':'Buscar productos ganadores en Meta Ads';
+  document.getElementById('cached-area').style.display = s==='tiktok' ? 'block' : 'none';
 }
 function setType(t){
   atype=t;
@@ -331,7 +338,7 @@ async function run(){
         // Polling cada 5 segundos
         let done = false;
         let attempts = 0;
-        while (!done && attempts < 120) { // máx 10 minutos (Fase 1 + filtro dropshipping + Fase 2)
+        while (!done && attempts < 120) { // máx 10 minutos
           await new Promise(r=>setTimeout(r,5000));
           attempts++;
           const poll = await fetch(`${API}/job-status/${jobId}`).then(r=>r.json()).catch(()=>({status:'error'}));
@@ -342,7 +349,6 @@ async function run(){
           ].filter(Boolean));
           if (poll.status === 'done' || poll.status === 'error') {
             const res = poll.result || {ads:[],error:'Error desconocido'};
-            // Guardar señales pendientes (viables pero fuera del top 10)
             window._pendingSignals = (res.pending_signals && res.pending_signals.length > 0) ? res.pending_signals : [];
             window._pipelineStats = res.pipeline_stats || {};
             results = [res];
@@ -375,7 +381,6 @@ async function run(){
       g('content').innerHTML=`<div class="sbox"><div class="sico">😶</div><div class="sttl">Sin resultados</div><div class="ssub">Prueba con otro nicho o reduciendo el tiempo activo.</div><div class="errbox">${raw}</div><button class="rbtn" onclick="run()">↻ Reintentar</button></div>`;
     }else{
       renderCards(all);
-      // Mostrar botón "Analizar más" según estado de señales pendientes
       renderPendingSignalsBtn(window._pendingSignals || [], window._pipelineStats || {});
     }
   }catch(err){
@@ -385,85 +390,27 @@ async function run(){
     g('ctxt').textContent='Buscar productos ganadores en Meta Ads';
   }
 }
-// ── Botón "Analizar más señales" ─────────────────────────────────────────────
-// Se muestra siempre después de una búsqueda TikTok:
-//   - Con señales pendientes → botón ACTIVO naranja
-//   - Sin señales pendientes → botón GRIS informativo
+// ── renderPendingSignalsBtn ────────────────────────────────────────────────────
 function renderPendingSignalsBtn(pendingSignals, stats) {
-  // Eliminar banner anterior si existe
   const existing = document.getElementById('pending-banner');
   if (existing) existing.remove();
-
   const container = document.getElementById('content');
   if (!container) return;
-
   const count = pendingSignals ? pendingSignals.length : 0;
   const validated = (stats && stats.signals_validated) || 0;
   const viable = (stats && stats.signals_dropship_viable) || 0;
-  const found = (stats && stats.signals_found) || 0;
   const hasPending = count > 0;
-
-  const costEstimate = (Math.min(count, 10) * 0.10).toFixed(2);
-  const timeEstimate = Math.min(count, 10) * 2;
-
+  const costEst = (Math.min(count,10)*0.10).toFixed(2);
+  const timeEst = Math.min(count,10)*2;
   const banner = document.createElement('div');
   banner.id = 'pending-banner';
   banner.style.cssText = 'margin:24px 0 8px 0;padding:18px 20px;background:linear-gradient(135deg,#111827,#1f2937);border:1px solid '+(hasPending?'#f97316':'#374151')+';border-radius:12px;';
-
   if (hasPending) {
-    // Botón ACTIVO — hay señales viables en reserva
-    banner.innerHTML = `
-      <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;">
-        <div style="flex:1;min-width:200px;">
-          <div style="color:#f97316;font-weight:700;font-size:15px;margin-bottom:6px;">
-            ⏳ ${count} señal${count>1?'es':''} viable${count>1?'s':''} en reserva
-          </div>
-          <div style="color:#9ca3af;font-size:13px;margin-bottom:10px;">
-            Esta búsqueda validó <strong style="color:#d1d5db">${validated}</strong> de <strong style="color:#d1d5db">${viable}</strong> señales viables para dropshipping.
-            Quedan ${count} más sin verificar — todas aptas para mercado europeo.
-          </div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px;">
-            ${(pendingSignals||[]).slice(0,6).map(s=>`
-              <span style="background:#111827;border:1px solid #374151;border-radius:6px;padding:3px 8px;font-size:11px;color:#d1d5db;display:flex;align-items:center;gap:4px;">
-                ${s.tier==='mega'?'🚀':s.tier==='alta'?'⬆️':'📊'}
-                <strong>${s.product_name}</strong>
-                <span style="color:#6b7280">${s.dropship_score?s.dropship_score+'/100':''}  ·  ${((s.total_views||0)/1000).toFixed(0)}k views</span>
-              </span>
-            `).join('')}
-            ${count > 6 ? `<span style="background:#111827;border:1px solid #374151;border-radius:6px;padding:3px 8px;font-size:11px;color:#6b7280;">+${count-6} más</span>` : ''}
-          </div>
-        </div>
-        <button id="validate-more-btn" onclick="validatePendingSignals()" style="
-          background:linear-gradient(135deg,#ea580c,#f97316);
-          color:white;border:none;border-radius:8px;
-          padding:14px 20px;font-size:14px;font-weight:600;
-          cursor:pointer;white-space:nowrap;min-width:190px;text-align:center;line-height:1.4;">
-          🔍 Analizar ${Math.min(count,10)} señales más<br>
-          <span style="font-size:11px;opacity:0.85;font-weight:400;">~$${costEstimate} · ~${timeEstimate} min</span>
-        </button>
-      </div>`;
+    banner.innerHTML = `<div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;"><div style="flex:1;min-width:200px;"><div style="color:#f97316;font-weight:700;font-size:15px;margin-bottom:6px;">⏳ ${count} señal${count>1?'es':''} viable${count>1?'s':''} en reserva</div><div style="color:#9ca3af;font-size:13px;margin-bottom:10px;">Validadas <strong style="color:#d1d5db">${validated}</strong> de <strong style="color:#d1d5db">${viable}</strong> señales aptas para dropshipping. Quedan ${count} sin verificar.</div><div style="display:flex;flex-wrap:wrap;gap:6px;">${(pendingSignals||[]).slice(0,6).map(s=>`<span style="background:#111827;border:1px solid #374151;border-radius:6px;padding:3px 8px;font-size:11px;color:#d1d5db;">${s.tier==='mega'?'🚀':s.tier==='alta'?'⬆️':'📊'} <strong>${s.product_name}</strong> <span style="color:#6b7280">${s.dropship_score?s.dropship_score+'/100':''} · ${((s.total_views||0)/1000).toFixed(0)}k views</span></span>`).join('')}${count>6?`<span style="background:#111827;border:1px solid #374151;border-radius:6px;padding:3px 8px;font-size:11px;color:#6b7280;">+${count-6} más</span>`:''}</div></div><button id="validate-more-btn" onclick="validatePendingSignals()" style="background:linear-gradient(135deg,#ea580c,#f97316);color:white;border:none;border-radius:8px;padding:14px 20px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap;min-width:190px;text-align:center;line-height:1.4;">🔍 Analizar ${Math.min(count,10)} señales más<br><span style="font-size:11px;opacity:0.85;font-weight:400;">~$${costEst} · ~${timeEst} min</span></button></div>`;
   } else {
-    // Botón GRIS — no hay más señales en reserva
-    const msg = found === 0
-      ? 'No se encontraron señales virales en esta búsqueda.'
-      : viable === 0
-      ? `Se encontraron ${found} señales virales pero ninguna es viable para dropshipping.`
-      : `Todas las señales viables (${viable}) han sido analizadas.`;
-    banner.innerHTML = `
-      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
-        <div style="flex:1;">
-          <div style="color:#6b7280;font-weight:600;font-size:14px;margin-bottom:4px;">
-            ✓ Análisis completo
-          </div>
-          <div style="color:#4b5563;font-size:13px;">${msg}</div>
-        </div>
-        <button disabled style="
-          background:#1f2937;color:#4b5563;border:1px solid #374151;
-          border-radius:8px;padding:14px 20px;font-size:14px;
-          cursor:not-allowed;white-space:nowrap;min-width:190px;text-align:center;">
-          Sin más señales en reserva
-        </button>
-      </div>`;
+    const found = (stats && stats.signals_found) || 0;
+    const msg = found===0 ? 'No se encontraron señales virales en esta búsqueda.' : viable===0 ? `Se encontraron ${found} señales virales pero ninguna es viable para dropshipping.` : `Todas las señales viables (${viable}) han sido analizadas.`;
+    banner.innerHTML = `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;"><div style="flex:1;"><div style="color:#6b7280;font-weight:600;font-size:14px;margin-bottom:4px;">✓ Análisis completo</div><div style="color:#4b5563;font-size:13px;">${msg}</div></div><button disabled style="background:#1f2937;color:#4b5563;border:1px solid #374151;border-radius:8px;padding:14px 20px;font-size:14px;cursor:not-allowed;white-space:nowrap;min-width:190px;text-align:center;">Sin más señales en reserva</button></div>`;
   }
   container.appendChild(banner);
 }
@@ -471,61 +418,86 @@ function renderPendingSignalsBtn(pendingSignals, stats) {
 async function validatePendingSignals() {
   const pending = window._pendingSignals;
   if (!pending || !pending.length) return;
-
   const btn = document.getElementById('validate-more-btn');
-  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Lanzando validación...'; }
-
+  if (btn) { btn.disabled=true; btn.innerHTML='⏳ Lanzando...'; }
   try {
-    const initRes = await fetch(`${API}/validate-signals`, {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ signals: pending })
-    }).then(r=>r.json());
-
-    if (!initRes.job_id) {
-      if (btn) btn.innerHTML = '❌ Error al lanzar';
-      return;
-    }
-
+    const initRes = await fetch(`${API}/validate-signals`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({signals:pending})}).then(r=>r.json());
+    if (!initRes.job_id) { if(btn) btn.innerHTML='❌ Error'; return; }
     const jobId = initRes.job_id;
-    if (btn) btn.innerHTML = '⏳ Validando señales...';
-
-    let done = false, attempts = 0;
-    while (!done && attempts < 120) {
-      await new Promise(r=>setTimeout(r,5000));
-      attempts++;
+    let done=false, attempts=0;
+    while (!done && attempts<120) {
+      await new Promise(r=>setTimeout(r,5000)); attempts++;
       const poll = await fetch(`${API}/job-status/${jobId}`).then(r=>r.json()).catch(()=>({status:'error'}));
-      if (btn) btn.innerHTML = `⏳ ${poll.progress || 'Validando... ('+attempts*5+'s)'}`;
-
-      if (poll.status === 'done' || poll.status === 'error') {
-        done = true;
-        const res = poll.result || {ads:[]};
-
-        // Actualizar reserva para posibles siguientes rondas
-        window._pendingSignals = (res.pending_signals && res.pending_signals.length > 0) ? res.pending_signals : [];
-        window._pipelineStats = res.pipeline_stats || {};
-
-        if (res.ads && res.ads.length > 0) {
-          // Insertar nuevas tarjetas antes del banner
-          const banner = document.getElementById('pending-banner');
-          const container = document.getElementById('content');
-          res.ads.forEach((ad, i) => {
-            const rank = document.querySelectorAll('.card').length + i + 1;
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = buildCard(ad, rank);
-            const card = tempDiv.firstElementChild;
-            if (card) { card.style.animation = 'fadeIn 0.4s ease'; container.insertBefore(card, banner); }
-          });
+      if(btn) btn.innerHTML=`⏳ ${poll.progress||'Validando... ('+attempts*5+'s)'}`;
+      if (poll.status==='done'||poll.status==='error') {
+        done=true;
+        const res=poll.result||{ads:[]};
+        window._pendingSignals=(res.pending_signals&&res.pending_signals.length>0)?res.pending_signals:[];
+        window._pipelineStats=res.pipeline_stats||{};
+        if (res.ads&&res.ads.length>0) {
+          const banner=document.getElementById('pending-banner');
+          const cont=document.getElementById('content');
+          res.ads.forEach((ad,i)=>{const rank=document.querySelectorAll('.card').length+i+1;const td=document.createElement('div');td.innerHTML=buildCard(ad,rank);const card=td.firstElementChild;if(card){card.style.animation='fadeIn 0.4s ease';cont.insertBefore(card,banner);}});
         }
-
-        // Actualizar banner (puede quedar en gris si no hay más)
-        banner && banner.remove();
-        renderPendingSignalsBtn(window._pendingSignals, window._pipelineStats);
+        const b=document.getElementById('pending-banner'); if(b) b.remove();
+        renderPendingSignalsBtn(window._pendingSignals,window._pipelineStats);
       }
     }
-    if (!done) { if(btn){btn.disabled=false;btn.innerHTML='❌ Timeout. Reintentar';} }
-  } catch(e) {
-    if(btn){btn.disabled=false;btn.innerHTML='❌ Error: '+e.message;}
+  } catch(e) { if(btn){btn.disabled=false;btn.innerHTML='❌ Error: '+e.message;} }
+}
+
+// ── Analizar JSON ya descargados de Apify (TEMPORAL — sin coste Apify) ────────
+async function loadCachedFiles(event) {
+  const files = Array.from(event.target.files);
+  if (!files.length) return;
+  const allVideos = {};
+  let totalRaw = 0;
+  for (const file of files) {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const arr = Array.isArray(data) ? data : (data.items || []);
+      totalRaw += arr.length;
+      arr.forEach(v => { const id=String(v.id||v.videoId||Math.random()); if(!allVideos[id]){v.id=id;allVideos[id]=v;} });
+    } catch(e) { console.error('Error leyendo', file.name, e); }
+  }
+  const videos = Object.values(allVideos);
+  const lbl = document.getElementById('cached-label-text');
+  const lbEl = document.getElementById('cached-label');
+  lbl.textContent = `✓ ${files.length} archivo${files.length>1?'s':''} · ${videos.length} vídeos únicos`;
+  lbEl.style.borderColor='#22c55e'; lbEl.style.color='#22c55e';
+  if (!videos.length) { alert('No se encontraron vídeos'); return; }
+  const btn=g('cta'); btn.disabled=true;
+  const niche=document.getElementById('nicho')?.value||g('nc')?.value||'general';
+  const limit=g('nr')?.value||10;
+  setLog([`📂 ${videos.length} vídeos desde archivos locales`,'🤖 Identificando productos...','⏳ Sin coste adicional en Apify']);
+  g('content').innerHTML='';
+  try {
+    const initRes=await fetch(`${API}/analyze-cached`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({videos,niche,limit:parseInt(limit)})}).then(r=>r.json());
+    if (!initRes.job_id) { g('content').innerHTML=`<div class="sbox"><div class="sico">❌</div><div class="sttl">Error</div><div class="ssub">${initRes.error||'Error'}</div></div>`; btn.disabled=false; return; }
+    const jobId=initRes.job_id;
+    let done=false, attempts=0;
+    while (!done && attempts<120) {
+      await new Promise(r=>setTimeout(r,5000)); attempts++;
+      const poll=await fetch(`${API}/job-status/${jobId}`).then(r=>r.json()).catch(()=>({status:'error'}));
+      setLog([`📂 Analizando ${videos.length} vídeos guardados...`,poll.progress||`Procesando... (${attempts*5}s)`,attempts>5?'⏳ Filtros dropshipping + validación Fase 2':''].filter(Boolean));
+      if (poll.status==='done'||poll.status==='error') {
+        done=true;
+        const res=poll.result||{ads:[]};
+        window._pendingSignals=(res.pending_signals&&res.pending_signals.length>0)?res.pending_signals:[];
+        window._pipelineStats=res.pipeline_stats||{};
+        const all=res.ads||[];
+        if (!all.length) { g('content').innerHTML=`<div class="sbox"><div class="sico">😶</div><div class="sttl">Sin resultados</div><div class="ssub">No se encontraron productos confirmados.</div><div class="errbox">${JSON.stringify(res).slice(0,300)}</div></div>`; }
+        else { renderCards(all); renderPendingSignalsBtn(window._pendingSignals,window._pipelineStats); }
+      }
+    }
+    if(!done) g('content').innerHTML=`<div class="sbox"><div class="sico">⏱️</div><div class="sttl">Timeout</div></div>`;
+  } catch(err) { g('content').innerHTML=`<div class="sbox"><div class="sico">📡</div><div class="sttl">Error</div><div class="ssub">${String(err)}</div></div>`; }
+  finally {
+    btn.disabled=false;
+    document.getElementById('cached-file-input').value='';
+    lbl.textContent='Analizar JSON guardados (sin gastar Apify)';
+    lbEl.style.borderColor='#334155'; lbEl.style.color='#64748b';
   }
 }
 

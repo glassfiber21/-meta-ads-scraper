@@ -5,7 +5,7 @@ const path = require('path');
 
 const app = express();
 app.use(cors({ origin: '*', methods: ['GET','POST','OPTIONS'], allowedHeaders: ['Content-Type'] }));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 const PORT = process.env.PORT || 8080;
 const TEST_MODE = true; // Cambiar a false para producción
@@ -701,163 +701,55 @@ app.get('/tiktok-products', async (req, res) => {
       const { confirmed, signals } = groupAndScoreV2(videos, productMap);
       console.log(`[JOB ${jobId}] Confirmados (2+vv 2+c): ${confirmed.length} | Señales únicas (>100k views): ${signals.length}`);
 
-      // ── FILTRO DROPSHIPPING + SELECCIÓN TOP 10 PARA FASE 2 ─────────────────
-      // Antes de gastar dinero en Apify, Claude evalúa cada señal como producto
-      // de dropshipping viable para mercado europeo (USA→Europa)
+      // ── FASE 2: validar señales únicas ──────────────────────────────────────
       const validated = [];
-      let signalsForFase2 = [];
-      let pendingSignals = [];
-
       if (signals.length > 0) {
-        updateJob(jobId, { progress: `Evaluando ${signals.length} señales como productos de dropshipping...` });
-        console.log(`[DROPSHIP FILTER] Evaluando ${signals.length} señales...`);
+        updateJob(jobId, { progress: `Fase 2: Validando ${signals.length} señales únicas...` });
+        console.log(`[FASE2] Validando ${signals.length} señales: ${signals.map(s => s.product_name).join(', ')}`);
 
-        // ── Paso 1: Claude evalúa viabilidad dropshipping de cada señal ──────
-        const signalList = signals.map(s => ({
-          name: s.product_name,
-          views: s.total_views,
-          likes: s.total_likes,
-          days_ago: s.newest_days,
-          tier: s.tier
-        }));
+        for (const signal of signals.slice(0, 5)) { // máx 5 validaciones para controlar coste
+          console.log(`[FASE2] Buscando: "${signal.product_name}" (${signal.total_views.toLocaleString()} views)`);
+          try {
+            // Buscar 20 vídeos específicos del producto por nombre
+            const validationVideos = await scrapeTikTok([signal.product_name], 20);
+            if (!validationVideos.length) { console.log(`[FASE2] Sin resultados para: ${signal.product_name}`); continue; }
 
-        const dropshipPrompt = `You are a dropshipping expert evaluating products for the European market (Spain, France, Germany, Italy).
-A seller in Europe wants to find products that are viral in the USA and replicate them in Europe 2-4 weeks later.
-
-Evaluate each product for dropshipping viability:
-
-Products to evaluate:
-${JSON.stringify(signalList, null, 2)}
-
-For each product, score its DROPSHIPPING VIABILITY (0-100) for the European market:
-
-HIGH SCORE (70-100) — Good dropshipping products:
-- Kitchen gadgets, home organization, cleaning tools, garden tools
-- Pet accessories, bathroom gadgets, travel accessories
-- No dominant brand, easily sourced from China/AliExpress
-- Clear problem-solution, demonstrable in a short video
-- Price range €15-€80 retail (allows x3 margin)
-- No size/color complexity (or minimal)
-
-LOW SCORE (0-40) — Bad dropshipping products:
-- Branded products (Ninja, Apple, Dyson, etc.) — can't compete
-- Fashion/clothing — size issues, high returns, brutal competition
-- Food/supplements — regulations, customs problems
-- Services, apps, digital products
-- Very cheap items (<€5 retail) — no margin
-- Very expensive items (>€150) — hard to sell cold
-- Adult products, medical devices
-
-MEDIUM (40-70):
-- Could work but has complications (fragile, bulky, seasonal only, etc.)
-
-Reply ONLY with a JSON array:
-[{"name":"<product name>","dropship_score":<0-100>,"reason":"<1 sentence why>","viable":true|false}]`;
-
-        let dropshipScores = {};
-        try {
-          const dsRes = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-            body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1500,
-              messages: [{ role: 'user', content: dropshipPrompt }] })
-          });
-          const dsData = await dsRes.json();
-          const dsText = (dsData.content || []).filter(b => b.type === 'text').map(b => b.text).join('');
-          const dsClean = dsText.replace(/```json|```/g, '').trim();
-          const dsMatch = dsClean.match(/\[[\s\S]*\]/);
-          if (dsMatch) {
-            const dsResults = JSON.parse(dsMatch[0]);
-            dsResults.forEach(r => { dropshipScores[r.name.toLowerCase()] = r; });
-            console.log('[DROPSHIP FILTER] Scores:');
-            dsResults.sort((a,b) => b.dropship_score - a.dropship_score).forEach(r => {
-              const icon = r.dropship_score >= 70 ? '✓' : r.dropship_score >= 40 ? '~' : '✗';
-              console.log(`  ${icon} ${r.name}: ${r.dropship_score}/100 — ${r.reason}`);
+            const validationMap = await identifyProductsBatch(validationVideos);
+            // Contar cuántos de los vídeos nuevos confirman el mismo producto
+            const confirming = validationVideos.filter(v => {
+              const p = validationMap[v.id];
+              if (!p || p.product === 'unknown') return false;
+              const norm = normalizeProduct(p.product);
+              const signalNorm = signal.product_name.toLowerCase();
+              return norm && (norm.toLowerCase().includes(signalNorm.split(' ')[0]) || signalNorm.includes(norm.toLowerCase().split(' ')[0]));
             });
-          }
-        } catch(e) {
-          console.error('[DROPSHIP FILTER] Error evaluando:', e.message);
-        }
+            const viralConfirming = confirming.filter(v => (v.diggCount || 0) >= 500 || (v.playCount || 0) >= 10000);
+            const newCreators = new Set(confirming.map(v => v.authorMeta?.name || v.author || '')).size;
 
-        // ── Paso 2: Enriquecer señales con score dropshipping y filtrar ───────
-        const enrichedSignals = signals.map(s => {
-          const ds = dropshipScores[s.product_name.toLowerCase()] || {};
-          return {
-            ...s,
-            dropship_score: ds.dropship_score || 50,
-            dropship_reason: ds.reason || '',
-            dropship_viable: ds.viable !== false,
-            // Score combinado: viralidad (40%) + dropshipping (60%)
-            combined_score: Math.round((s.score * 0.4) + ((ds.dropship_score || 50) * 0.6))
-          };
-        });
+            console.log(`[FASE2] "${signal.product_name}": ${viralConfirming.length} vídeos virales confirmados de ${newCreators} creadores`);
 
-        // Filtrar solo los viables y ordenar por score combinado
-        const viableSignals = enrichedSignals
-          .filter(s => s.dropship_score >= 50)
-          .sort((a, b) => b.combined_score - a.combined_score);
-
-        const discardedSignals = enrichedSignals.filter(s => s.dropship_score < 50);
-        console.log(`[DROPSHIP FILTER] Viables: ${viableSignals.length} | Descartados: ${discardedSignals.length}`);
-        discardedSignals.forEach(s => console.log(`  ✗ DESCARTADO: ${s.product_name} (score: ${s.dropship_score}) — ${s.dropship_reason}`));
-
-        // ── Paso 3: Top 10 para Fase 2, el resto en reserva ──────────────────
-        const FASE2_MAX = 10;
-        signalsForFase2 = viableSignals.slice(0, FASE2_MAX);
-        pendingSignals = viableSignals.slice(FASE2_MAX).map(s => ({ ...s, label: 'Pendiente', pending: true }));
-
-        console.log(`[FASE2] Top ${signalsForFase2.length} seleccionados para validación`);
-        signalsForFase2.forEach(s => console.log(`  → ${s.product_name} | dropship: ${s.dropship_score} | viral: ${s.total_views.toLocaleString()} views | combined: ${s.combined_score}`));
-        if (pendingSignals.length > 0) {
-          console.log(`[RESERVA] ${pendingSignals.length} señales guardadas para siguiente ronda:`);
-          pendingSignals.forEach(s => console.log(`  ⏳ ${s.product_name} | dropship: ${s.dropship_score} | views: ${s.total_views.toLocaleString()}`));
-        }
-
-        // ── FASE 2: Validar cada señal del top 10 con 20 vídeos ──────────────
-        if (signalsForFase2.length > 0) {
-          updateJob(jobId, { progress: `Fase 2: Validando ${signalsForFase2.length} productos en TikTok...` });
-
-          for (const signal of signalsForFase2) {
-            console.log(`[FASE2] Buscando: "${signal.product_name}" (dropship: ${signal.dropship_score}/100 | ${signal.total_views.toLocaleString()} views)`);
-            updateJob(jobId, { progress: `Validando: ${signal.product_name}...` });
-            try {
-              const validationVideos = await scrapeTikTok([signal.product_name], 20);
-              if (!validationVideos.length) { console.log(`[FASE2] Sin resultados para: ${signal.product_name}`); continue; }
-
-              const validationMap = await identifyProductsBatch(validationVideos);
-              const confirming = validationVideos.filter(v => {
-                const p = validationMap[v.id];
-                if (!p || p.product === 'unknown') return false;
-                const norm = normalizeProduct(p.product);
-                const signalNorm = signal.product_name.toLowerCase();
-                return norm && (norm.toLowerCase().includes(signalNorm.split(' ')[0]) || signalNorm.includes(norm.toLowerCase().split(' ')[0]));
-              });
-              const viralConfirming = confirming.filter(v => (v.diggCount || 0) >= 500 || (v.playCount || 0) >= 10000);
-              const newCreators = new Set(confirming.map(v => v.authorMeta?.name || v.author || '')).size;
-
-              console.log(`[FASE2] "${signal.product_name}": ${viralConfirming.length}vv | ${newCreators}c | dropship_score: ${signal.dropship_score}`);
-
-              if (viralConfirming.length >= 2 && newCreators >= 2) {
-                validated.push({
-                  ...signal,
-                  label: 'Validado',
-                  phase2_viral: viralConfirming.length,
-                  phase2_creators: newCreators,
-                  video_count: signal.video_count + viralConfirming.length,
-                  creator_count: signal.creator_count + newCreators,
-                  ad_copy: `${signal.video_count + viralConfirming.length} vídeos virales · ${signal.total_views.toLocaleString()} views · ${signal.creator_count + newCreators} creadores`,
-                  score: signal.combined_score + 10,
-                  tiktok_score: signal.combined_score + 10,
-                  // Mostrar razón dropshipping en la tarjeta
-                  dropship_insight: signal.dropship_reason
-                });
-                console.log(`[FASE2] ✓ PROMOVIDO: ${signal.product_name}`);
-              } else {
-                console.log(`[FASE2] ✗ DESCARTADO: ${signal.product_name} (insuficientes confirmaciones en Fase 2)`);
-              }
-            } catch(e) {
-              console.error(`[FASE2] Error validando ${signal.product_name}:`, e.message);
+            if (viralConfirming.length >= 2 && newCreators >= 2) {
+              // Promover: añadir señal + vídeos de validación al confirmed
+              const promoted = {
+                ...signal,
+                validation_source: 'fase2',
+                phase2_viral_count: viralConfirming.length,
+                phase2_creator_count: newCreators,
+                // Actualizar métricas combinando Fase1 + Fase2
+                video_count: signal.video_count + viralConfirming.length,
+                creator_count: signal.creator_count + newCreators,
+                ad_copy: `${signal.video_count + viralConfirming.length} vídeos virales · ${signal.total_views.toLocaleString()} views · ${signal.creator_count + newCreators} creadores`,
+                video_count_display: signal.video_count + viralConfirming.length,
+                creator_count_display: signal.creator_count + newCreators,
+                label: 'Validado'
+              };
+              validated.push(promoted);
+              console.log(`[FASE2] ✓ PROMOVIDO: ${signal.product_name}`);
+            } else {
+              console.log(`[FASE2] ✗ DESCARTADO: ${signal.product_name} (insuficientes confirmaciones)`);
             }
+          } catch (e) {
+            console.error(`[FASE2] Error validando ${signal.product_name}:`, e.message);
           }
         }
       }
@@ -889,24 +781,8 @@ Reply ONLY with a JSON array:
             videos_scraped: videos.length,
             confirmed_direct: confirmed.length,
             signals_found: signals.length,
-            signals_dropship_viable: (signalsForFase2 || []).length + (pendingSignals || []).length,
-            signals_validated: validated.length,
-            signals_pending_count: (pendingSignals || []).length
-          },
-          // Señales viables pendientes para el botón "Analizar más"
-          // Vacío si hubo ≤10 señales viables (botón en gris)
-          pending_signals: (pendingSignals || []).map(s => ({
-            product_name: s.product_name,
-            total_views: s.total_views,
-            total_likes: s.total_likes,
-            tier: s.tier,
-            score: s.combined_score || s.score,
-            dropship_score: s.dropship_score,
-            dropship_reason: s.dropship_reason,
-            newest_days: s.newest_days,
-            tiktok_search_url: s.tiktok_search_url,
-            label: 'Pendiente'
-          }))
+            signals_validated: validated.length
+          }
         }
       });
     } catch (e) {
@@ -916,98 +792,166 @@ Reply ONLY with a JSON array:
   })();
 });
 
-// ── Endpoint: validar señales en reserva (botón "Analizar más") ──────────────
-// Recibe las señales pendientes (ya evaluadas como dropshipping-viables)
-// y ejecuta la misma Fase 2 con ellas
-app.post('/validate-signals', async (req, res) => {
-  const { signals: pendingSignals = [] } = req.body;
-  if (!pendingSignals.length) return res.json({ success: false, error: 'No signals provided' });
+// Consultar estado de un job
+// ── Endpoint: analizar JSON ya descargados (sin gastar Apify) ────────────────
+// Recibe un array de vídeos de TikTok (formato Apify) ya descargados
+// y ejecuta todo el pipeline: Claude → filtro dropshipping → Fase 2
+// USO TEMPORAL para reutilizar runs ya pagados
+app.post('/analyze-cached', async (req, res) => {
+  const { videos: rawVideos = [], niche = 'general', limit = 10 } = req.body;
+  if (!rawVideos.length) return res.json({ success: false, error: 'No se recibieron vídeos' });
 
   const jobId = createJob();
-  res.json({ success: true, job_id: jobId, message: `Validando ${Math.min(pendingSignals.length,10)} señales en reserva` });
+  console.log(`[CACHED] Job ${jobId} | ${rawVideos.length} vídeos recibidos | niche: ${niche}`);
+  res.json({ success: true, job_id: jobId, message: `Analizando ${rawVideos.length} vídeos cacheados...` });
 
   (async () => {
     try {
-      const FASE2_MAX = 10;
-      const toValidate = pendingSignals.slice(0, FASE2_MAX);
-      const stillPendingAfter = pendingSignals.slice(FASE2_MAX);
+      // Deduplicar por ID
+      const seen = new Set();
+      const videos = rawVideos.filter(v => {
+        const id = String(v.id || v.videoId || Math.random());
+        if (seen.has(id)) return false;
+        seen.add(id);
+        v.id = id; // asegurar campo id consistente
+        return true;
+      });
+      console.log(`[CACHED] Vídeos únicos tras dedup: ${videos.length}`);
 
-      updateJob(jobId, { progress: `Validando ${toValidate.length} señales en reserva...` });
-      console.log(`[RESERVA] Validando: ${toValidate.map(s => s.product_name).join(', ')}`);
+      updateJob(jobId, { progress: `${videos.length} vídeos cargados. Identificando productos con IA...` });
 
+      // PASO 1: Claude identifica productos
+      const productMap = await identifyProductsBatch(videos);
+      const identified = Object.values(productMap).filter(p => p.product !== 'unknown').length;
+      console.log(`[CACHED] Productos identificados: ${identified}`);
+      updateJob(jobId, { progress: `${identified} productos identificados. Agrupando...` });
+
+      // PASO 2: Agrupar y separar confirmados vs señales
+      const { confirmed, signals } = groupAndScoreV2(videos, productMap);
+      console.log(`[CACHED] Confirmados: ${confirmed.length} | Señales únicas: ${signals.length}`);
+
+      // PASO 3: Filtro dropshipping sobre las señales
       const validated = [];
+      let signalsForFase2 = [];
+      let pendingSignals = [];
 
-      for (const signal of toValidate) {
-        console.log(`[RESERVA] → "${signal.product_name}" | dropship: ${signal.dropship_score||'?'}/100 | ${(signal.total_views||0).toLocaleString()} views`);
-        updateJob(jobId, { progress: `Validando: ${signal.product_name}...` });
+      if (signals.length > 0) {
+        updateJob(jobId, { progress: `Evaluando ${signals.length} señales para dropshipping...` });
+
+        const signalList = signals.map(s => ({
+          name: s.product_name, views: s.total_views, likes: s.total_likes,
+          days_ago: s.newest_days, tier: s.tier
+        }));
+
+        const dropshipPrompt = \`You are a dropshipping expert evaluating products for the European market (Spain, France, Germany, Italy).
+A seller in Europe wants to find products that are viral in the USA and replicate them in Europe 2-4 weeks later.
+
+Evaluate each product for dropshipping viability:
+
+Products to evaluate:
+\${JSON.stringify(signalList, null, 2)}
+
+HIGH SCORE (70-100): Kitchen gadgets, home organization, cleaning tools, garden tools, pet accessories, bathroom gadgets, travel accessories. No dominant brand, sourced from China/AliExpress, price €15-€80, demonstrable in video.
+LOW SCORE (0-40): Branded products (Ninja, Apple, etc.), fashion/clothing, food/supplements, services/apps, very cheap (<€5) or very expensive (>€150).
+MEDIUM (40-70): Works but has complications (fragile, bulky, highly seasonal).
+
+Reply ONLY with JSON array:
+[{"name":"<product name>","dropship_score":<0-100>,"reason":"<1 sentence>","viable":true|false}]\`;
+
+        let dropshipScores = {};
         try {
-          const validationVideos = await scrapeTikTok([signal.product_name], 20);
-          if (!validationVideos.length) { console.log(`[RESERVA] Sin resultados: ${signal.product_name}`); continue; }
-
-          const validationMap = await identifyProductsBatch(validationVideos);
-          const confirming = validationVideos.filter(v => {
-            const p = validationMap[v.id];
-            if (!p || p.product === 'unknown') return false;
-            const norm = normalizeProduct(p.product);
-            const signalNorm = signal.product_name.toLowerCase();
-            return norm && (norm.toLowerCase().includes(signalNorm.split(' ')[0]) || signalNorm.includes(norm.toLowerCase().split(' ')[0]));
+          const dsRes = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+            body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1500,
+              messages: [{ role: 'user', content: dropshipPrompt }] })
           });
-          const viralConfirming = confirming.filter(v => (v.diggCount||0) >= 500 || (v.playCount||0) >= 10000);
-          const newCreators = new Set(confirming.map(v => v.authorMeta?.name || v.author || '')).size;
-
-          console.log(`[RESERVA] "${signal.product_name}": ${viralConfirming.length}vv | ${newCreators}c`);
-
-          if (viralConfirming.length >= 2 && newCreators >= 2) {
-            validated.push({
-              ...signal,
-              label: 'Validado',
-              phase2_viral: viralConfirming.length,
-              phase2_creators: newCreators,
-              video_count: (signal.video_count||1) + viralConfirming.length,
-              creator_count: (signal.creator_count||1) + newCreators,
-              score: (signal.score||50) + 10,
-              ad_copy: `${(signal.video_count||1) + viralConfirming.length} vídeos virales · ${(signal.total_views||0).toLocaleString()} views · ${(signal.creator_count||1) + newCreators} creadores`,
-              page_name: signal.product_name,
-              total_ads: (signal.video_count||1) + viralConfirming.length,
-              advertiser_count: (signal.creator_count||1) + newCreators,
-              library_url: `https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=US&q=${encodeURIComponent(signal.product_name)}&search_type=keyword_unordered`,
-              tiktok_search_url: `https://www.tiktok.com/search?q=${encodeURIComponent(signal.product_name)}`
-            });
-            console.log(`[RESERVA] ✓ PROMOVIDO: ${signal.product_name}`);
-          } else {
-            console.log(`[RESERVA] ✗ DESCARTADO: ${signal.product_name}`);
+          const dsData = await dsRes.json();
+          const dsText = (dsData.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('');
+          const dsMatch = dsText.replace(/```json|```/g,'').trim().match(/\[[\s\S]*\]/);
+          if (dsMatch) {
+            JSON.parse(dsMatch[0]).forEach(r => { dropshipScores[r.name.toLowerCase()] = r; });
+            console.log('[CACHED] Dropship scores:');
+            Object.values(dropshipScores).sort((a,b)=>b.dropship_score-a.dropship_score).forEach(r =>
+              console.log(\`  \${r.dropship_score>=70?'✓':r.dropship_score>=40?'~':'✗'} \${r.name}: \${r.dropship_score}/100 — \${r.reason}\`)
+            );
           }
-        } catch(e) {
-          console.error(`[RESERVA] Error en ${signal.product_name}:`, e.message);
+        } catch(e) { console.error('[CACHED] Dropship eval error:', e.message); }
+
+        const enriched = signals.map(s => {
+          const ds = dropshipScores[s.product_name.toLowerCase()] || {};
+          return { ...s, dropship_score: ds.dropship_score||50, dropship_reason: ds.reason||'',
+            dropship_viable: ds.viable!==false,
+            combined_score: Math.round((s.score*0.4)+((ds.dropship_score||50)*0.6)) };
+        });
+
+        const viable = enriched.filter(s=>s.dropship_score>=50).sort((a,b)=>b.combined_score-a.combined_score);
+        const discarded = enriched.filter(s=>s.dropship_score<50);
+        console.log(\`[CACHED] Viables: \${viable.length} | Descartados por dropshipping: \${discarded.length}\`);
+
+        const FASE2_MAX = 10;
+        signalsForFase2 = viable.slice(0, FASE2_MAX);
+        pendingSignals = viable.slice(FASE2_MAX).map(s=>({...s,label:'Pendiente',pending:true}));
+
+        // PASO 4: Fase 2 — validar cada señal con 20 vídeos frescos de Apify
+        if (signalsForFase2.length > 0) {
+          updateJob(jobId, { progress: \`Fase 2: Validando \${signalsForFase2.length} productos en TikTok...\` });
+          for (const signal of signalsForFase2) {
+            console.log(\`[CACHED F2] Buscando: "\${signal.product_name}" (dropship:\${signal.dropship_score} views:\${signal.total_views.toLocaleString()})\`);
+            updateJob(jobId, { progress: \`Validando: \${signal.product_name}...\` });
+            try {
+              const vv = await scrapeTikTok([signal.product_name], 20);
+              if (!vv.length) continue;
+              const vm = await identifyProductsBatch(vv);
+              const confirming = vv.filter(v => {
+                const p = vm[v.id]; if (!p||p.product==='unknown') return false;
+                const norm = normalizeProduct(p.product);
+                const sn = signal.product_name.toLowerCase();
+                return norm&&(norm.toLowerCase().includes(sn.split(' ')[0])||sn.includes(norm.toLowerCase().split(' ')[0]));
+              });
+              const viral = confirming.filter(v=>(v.diggCount||0)>=500||(v.playCount||0)>=10000);
+              const creators = new Set(confirming.map(v=>v.authorMeta?.name||v.author||'')).size;
+              console.log(\`[CACHED F2] "\${signal.product_name}": \${viral.length}vv \${creators}c\`);
+              if (viral.length>=2&&creators>=2) {
+                validated.push({ ...signal, label:'Validado', phase2_viral:viral.length, phase2_creators:creators,
+                  video_count:signal.video_count+viral.length, creator_count:signal.creator_count+creators,
+                  score:signal.combined_score+10, tiktok_score:signal.combined_score+10,
+                  ad_copy:\`\${signal.video_count+viral.length} vídeos virales · \${signal.total_views.toLocaleString()} views · \${signal.creator_count+creators} creadores\`,
+                  dropship_insight:signal.dropship_reason });
+                console.log(\`[CACHED F2] ✓ PROMOVIDO: \${signal.product_name}\`);
+              }
+            } catch(e) { console.error(\`[CACHED F2] Error \${signal.product_name}:\`, e.message); }
+          }
         }
       }
 
-      console.log(`[RESERVA] DONE | ${validated.length} promovidos | ${stillPendingAfter.length} aún en reserva`);
+      const allProducts = [
+        ...confirmed.map(p=>({...p,label:p.label||'Trending'})),
+        ...validated
+      ].sort((a,b)=>b.score-a.score).slice(0,parseInt(limit));
+
+      console.log(\`[CACHED] DONE | \${allProducts.length} productos finales\`);
       updateJob(jobId, {
         status: 'done',
         result: {
-          success: true,
-          ads: validated.sort((a,b) => b.score - a.score),
-          total_products: validated.length,
-          pipeline_stats: {
-            signals_validated: validated.length,
-            signals_discarded: toValidate.length - validated.length,
-            signals_pending_count: stillPendingAfter.length,
-            signals_dropship_viable: toValidate.length + stillPendingAfter.length
-          },
-          // Señales que aún quedan en reserva (para una tercera ronda si fuera necesario)
-          pending_signals: stillPendingAfter
+          success: true, ads: allProducts, total_products: allProducts.length,
+          pipeline_stats: { videos_scraped: videos.length, confirmed_direct: confirmed.length,
+            signals_found: signals.length, signals_dropship_viable: signalsForFase2.length+pendingSignals.length,
+            signals_validated: validated.length, signals_pending_count: pendingSignals.length },
+          pending_signals: pendingSignals.map(s=>({ product_name:s.product_name, total_views:s.total_views,
+            total_likes:s.total_likes, tier:s.tier, score:s.combined_score||s.score,
+            dropship_score:s.dropship_score, dropship_reason:s.dropship_reason,
+            newest_days:s.newest_days, tiktok_search_url:s.tiktok_search_url, label:'Pendiente' }))
         }
       });
     } catch(e) {
-      console.error('[RESERVA] ERROR:', e.message);
-      updateJob(jobId, { status: 'error', error: e.message, result: { success: false, error: e.message, ads: [] } });
+      console.error('[CACHED] ERROR:', e.message);
+      updateJob(jobId, { status:'error', error:e.message, result:{ success:false, error:e.message, ads:[] } });
     }
   })();
 });
 
 
-// Consultar estado de un job
 app.get('/job-status/:jobId', (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job) return res.status(404).json({ error: 'Job no encontrado' });
