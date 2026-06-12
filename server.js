@@ -331,7 +331,7 @@ function groupAndScore(videos, productMap) {
     if (!raw) continue;
     if (raw.product === 'unknown') continue;
     if (raw.confidence < 0.6) continue;
-    if ((raw.specificityScore || 0) < 70) { console.log('DESCARTADO (genérico):', raw.product, '| specificity:', raw.specificityScore); continue; }
+    if ((raw.specificityScore || 0) < 50) { console.log('DESCARTADO (genérico):', raw.product, '| specificity:', raw.specificityScore); continue; } // temporalmente 50 para diagnóstico
     if (isGeneric(raw.product)) { console.log('DESCARTADO (blacklist):', raw.product); continue; }
     
     const normalized = normalizeProduct(raw.product);
