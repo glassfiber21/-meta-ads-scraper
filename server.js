@@ -24,8 +24,9 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const APIFY_API_KEY = process.env.APIFY_API_KEY || '';
 const COUNTRY_CODES = { 'USA':'US','UK':'GB','US':'US','GB':'GB','ES':'ES' };
 
-// Caché en memoria
+// Caché en memoria — se limpia automáticamente cada hora
 const productCache = new Map();
+setInterval(() => { productCache.clear(); console.log('[CACHE] Limpiada automáticamente'); }, 3600000);
 
 console.log('APIFY KEY EXISTS:', !!process.env.APIFY_API_KEY);
 console.log('APIFY KEY LENGTH:', process.env.APIFY_API_KEY?.length || 0);
@@ -37,7 +38,8 @@ app.get('/', (req, res) => res.json({
   pipeline: 'TikTok → Claude → Meta Ads',
   endpoints: ['/scrape-ads', '/tiktok-products', '/health']
 }));
-app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString(), cache_size: productCache.size }));
+app.get('/clear-cache', (req, res) => { const size = productCache.size; productCache.clear(); res.json({ cleared: size }); });
 app.get('/cazador', (req, res) => res.sendFile(path.join(__dirname, 'cazador.html')));
 app.use(express.static(__dirname));
 
@@ -422,7 +424,7 @@ function groupAndScore(videos, productMap) {
     .filter(g => {
       const v = g.videos.length;
       const c = g.creators.size;
-      if (v < 3 || c < 2) {
+      if (v < 2 || c < 2) {
         console.log(`FILTRADO: ${g.product_name} → ${v}v / ${c}c (insuficiente)`);
         return false;
       }
