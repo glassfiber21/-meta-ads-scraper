@@ -43,18 +43,33 @@ app.get('/clear-cache', (req, res) => { const size = productCache.size; productC
 app.get('/cazador', (req, res) => res.sendFile(path.join(__dirname, 'cazador.html')));
 app.use(express.static(__dirname));
 
-// Search queries por nicho — texto en mayúsculas para TikTok searchQueries
+// ─────────────────────────────────────────────────────────────────────────────
+// ESTRATEGIA DE BÚSQUEDA — MUY IMPORTANTE
+//
+// OBJETIVO: descubrir qué productos DESCONOCIDOS están siendo comprados ahora.
+//
+// MAL ENFOQUE (antes): queries de haul → 'amazonfinds', 'amazonmusthaves'
+//   → cada vídeo muestra 5-10 productos distintos → 90 grupos de 1 vídeo → todo filtrado
+//
+// BUEN ENFOQUE (ahora): hashtags de categoría donde cada vídeo = 1 producto
+//   'kitchengadgets', 'tiktokmademebuyit', 'homehacks'
+//   → cada vídeo muestra UN solo producto → repetición natural → grupos de 10-30 vídeos
+//
+// PRINCIPIO: buscar por CATEGORÍA (qué tipo de producto), no por CANAL (Amazon, haul...)
+// ─────────────────────────────────────────────────────────────────────────────
 const SEARCH_QUERIES = {
-  'cocina':       ['KITCHEN GADGETS', 'KITCHEN FINDS', 'COOKING GADGETS', 'KITCHEN MUST HAVES', 'MEAL PREP'],
-  'hogar':        ['HOME ESSENTIALS', 'HOME FINDS', 'HOME ORGANIZATION', 'HOME PRODUCTS', 'HOME HACKS'],
-  'limpieza':     ['CLEANING PRODUCTS', 'CLEANING HACKS', 'DEEP CLEANING', 'CLEAN WITH ME', 'CLEANING GADGETS'],
-  'organizacion': ['ORGANIZATION IDEAS', 'HOME ORGANIZATION', 'DECLUTTER', 'STORAGE HACKS', 'ORGANIZED HOME'],
-  'mascotas':     ['PET PRODUCTS', 'PET GADGETS', 'DOG PRODUCTS', 'DOG MUST HAVES', 'CAT PRODUCTS'],
-  'jardin':       ['GARDEN TOOLS', 'BACKYARD IDEAS', 'POOL PRODUCTS', 'OUTDOOR PRODUCTS', 'GARDEN FINDS'],
-  'bano':         ['BATHROOM FINDS', 'BATHROOM PRODUCTS', 'BATHROOM ORGANIZATION', 'SELF CARE PRODUCTS', 'BATHROOM HACKS'],
-  'verano':       ['SUMMER PRODUCTS', 'SUMMER MUST HAVES', 'BEACH MUST HAVES', 'POOL MUST HAVES', 'SUMMER GADGETS'],
-  'viaje':        ['TRAVEL ESSENTIALS', 'TRAVEL GADGETS', 'PACKING HACKS', 'TRAVEL MUST HAVES', 'CARRY ON ESSENTIALS'],
-  'general':      ['TIKTOK MADE ME BUY IT', 'AMAZON FINDS', 'VIRAL PRODUCTS', 'MUST HAVE PRODUCTS', 'LIFE HACK PRODUCTS']
+  // Cada query es un hashtag donde los vídeos muestran UN solo producto físico
+  'cocina':       ['kitchengadgets', 'kitchenhack', 'kitchentool', 'cookinggadgets', 'mealprep'],
+  'hogar':        ['homehacks', 'homeupgrade', 'homegadgets', 'smarthome', 'roomtransformation'],
+  'limpieza':     ['cleaninghacks', 'cleantok', 'deepcleaning', 'cleanwithme', 'cleaninggadgets'],
+  'organizacion': ['organizationhacks', 'homeorganization', 'declutter', 'storagehacks', 'drawerorganization'],
+  'mascotas':     ['petproducts', 'petgadgets', 'dogproducts', 'dogtok', 'cattok'],
+  'jardin':       ['gardentools', 'gardeningtips', 'backyardideas', 'outdoorgadgets', 'poolhacks'],
+  'bano':         ['bathroomgadgets', 'bathroomorganization', 'showerhacks', 'bathroomupgrade', 'bathroomdecor'],
+  'verano':       ['summergadgets', 'summerhacks', 'coolproducts', 'beachgadgets', 'poolmusthave'],
+  'viaje':        ['travelgadgets', 'travelhacks', 'travelmusthave', 'travelproducts', 'packinghacks'],
+  // GENERAL: los mejores hashtags de descubrimiento — un vídeo = un producto
+  'general':      ['tiktokmademebuyit', 'viralproducts', 'lifehacks', 'gadgets', 'coolgadgets']
 };
 
 const GENERIC_BLACKLIST = [
@@ -151,8 +166,9 @@ function normalizeProduct(name) {
 async function scrapeTikTok(hashtags, videosPerHashtag = 50) {
   console.log(`[TIKTOK] Scraping ${hashtags.length} hashtags × ${videosPerHashtag} vídeos`);
   
-  // TEST_MODE: 2 queries enfocadas para maximizar repetición con mismo coste (~100 vídeos)
-  const queries = TEST_MODE ? ['amazonfinds', 'amazonmusthaves'] : hashtags;
+  // TEST_MODE: los 2 mejores hashtags de descubrimiento de producto único
+  // 'tiktokmademebuyit' y 'kitchengadgets' → vídeos de 1 producto → grupos naturales de 10-30
+  const queries = TEST_MODE ? ['tiktokmademebuyit', 'kitchengadgets'] : hashtags;
   const perPage = videosPerHashtag; // controlado por el llamador
 
   console.log(`[APIFY] Queries: ${queries.join(', ')} | PerPage: ${perPage}`);
@@ -254,27 +270,28 @@ async function identifyProductsBatch(videos) {
       text: ((v.text || v.description || '') + ' ' + (v.hashtags?.join(' ') || '')).substring(0, 300)
     }));
 
-    const prompt = `Analyze these TikTok videos and identify the SPECIFIC physical product being shown/sold.
+    const prompt = `Analyze these TikTok videos to find VIRAL PHYSICAL PRODUCTS being sold/promoted.
 
 Videos:
 ${JSON.stringify(adsJson, null, 2)}
 
-Rules:
-- Identify ONE specific product per video (e.g. "Portable Mini Fan", "Vegetable Chopper", "Oil Sprayer Bottle")
-- Be SPECIFIC: "Portable Mini Fan" not "Fan" or "Electronics"
-- Be SPECIFIC: "Vegetable Chopper" not "Kitchen Tool" or "Kitchen Gadget"
-- If it's a service, app, tutorial, lifestyle content, music, dance → use "unknown"
-- If it's a CATEGORY (makeup, hair care, home decor) not a specific product → use "unknown"
-- Focus only on products a dropshipper could sell
+CRITICAL RULES:
+1. Each video must show ONE single specific product. If the video is a HAUL (shows many products), use "unknown"
+2. Be VERY SPECIFIC: "Kitchen Exhaust Fan" not "Fan", "Vegetable Chopper" not "Kitchen Tool"
+3. Use "unknown" for: hauls, collections, lifestyle, fashion, food, services, apps, tutorials, dances
+4. Use "unknown" for: vague descriptions like "Amazon finds", "must haves", "essentials", "gadgets assortment"
+5. Only return a product name if the ENTIRE video is about that ONE product
 
-For specificityScore:
-- 90-100: Very specific single product clearly shown (Portable Mini Fan, Garlic Press, Oil Sprayer)
-- 60-89: Specific product but slightly generic name (Hair Dryer, Phone Stand)
-- 30-59: Generic category (Kitchen Gadget, Hair Tool, Makeup Product)
-- 0-29: Not a product or too vague (Bundle, Kit, Home Product)
+HAUL DETECTION — use "unknown" if text contains: haul, finds, favorites, must haves, essentials, restock, roundup, unboxing of multiple items
 
-Reply ONLY with JSON array, no explanation:
-[{"id":"<id>","product":"<product name>","confidence":<0.0-1.0>,"specificityScore":<0-100>}]`;
+specificityScore:
+- 90-100: Single specific product, entire video dedicated to it (Kitchen Exhaust Fan, Garlic Press, Oil Sprayer)
+- 60-89: Specific product but video may show variants (Portable Fan, Drawer Organizer)
+- 30-59: Too generic or vague (Kitchen Gadget, Cool Product)
+- 0-29: Haul / multiple products / non-product content → use "unknown"
+
+Reply ONLY with a JSON array, no explanation, no markdown:
+[{"id":"<id>","product":"<product name or unknown>","confidence":<0.0-1.0>,"specificityScore":<0-100>}]`;
 
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -326,7 +343,7 @@ function groupAndScore(videos, productMap) {
   
   console.log('=== PIPELINE TRACE ===');
   console.log('Vídeos recibidos desde Apify:', videos.length);
-  const validVideos = videos.filter(v => productMap[v.id] && productMap[v.id].product !== 'unknown' && productMap[v.id].confidence >= 0.6 && (productMap[v.id].specificityScore || 0) >= 70);
+  const validVideos = videos.filter(v => productMap[v.id] && productMap[v.id].product !== 'unknown' && productMap[v.id].confidence >= 0.6 && (productMap[v.id].specificityScore || 0) >= 60);
   console.log('Vídeos válidos tras filtros:', validVideos.length);
   console.log('Vídeos descartados:', videos.length - validVideos.length);
 
@@ -335,7 +352,7 @@ function groupAndScore(videos, productMap) {
     if (!raw) continue;
     if (raw.product === 'unknown') continue;
     if (raw.confidence < 0.6) continue;
-    if ((raw.specificityScore || 0) < 50) { console.log('DESCARTADO (genérico):', raw.product, '| specificity:', raw.specificityScore); continue; } // temporalmente 50 para diagnóstico
+    if ((raw.specificityScore || 0) < 60) { console.log('DESCARTADO (genérico):', raw.product, '| specificity:', raw.specificityScore); continue; }
     if (isGeneric(raw.product)) { console.log('DESCARTADO (blacklist):', raw.product); continue; }
     
     const normalized = normalizeProduct(raw.product);
@@ -545,9 +562,9 @@ app.get('/tiktok-products', async (req, res) => {
       console.log(`[JOB ${jobId}] Productos agrupados: ${products.length}`);
       
       // Stats detalladas del pipeline
-      const stats_generic = Object.values(productMap).filter(p => p.product !== 'unknown' && (p.specificityScore||0) < 70).length;
+      const stats_generic = Object.values(productMap).filter(p => p.product !== 'unknown' && (p.specificityScore||0) < 60).length;
       const stats_unknown = Object.values(productMap).filter(p => p.product === 'unknown').length;
-      const stats_valid = Object.values(productMap).filter(p => p.product !== 'unknown' && (p.specificityScore||0) >= 70).length;
+      const stats_valid = Object.values(productMap).filter(p => p.product !== 'unknown' && (p.specificityScore||0) >= 60).length;
       console.log('=== STATS PIPELINE ===');
       console.log(`Vídeos obtenidos: ${videos.length}`);
       console.log(`Productos identificados por Claude: ${Object.keys(productMap).length}`);
