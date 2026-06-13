@@ -34,16 +34,14 @@ function updateJob(id, data) { if (jobs[id]) Object.assign(jobs[id], data); }
 async function scrapeQuery(query, n) {
   console.log(`[SCRAPE] "${query}" × ${n} vídeos`);
 
-  // Usar URL directa del hashtag en lugar de search query
-  // tiktok.com/tag/HASHTAG → feed real del hashtag, ordenado por popularidad
-  // Mucho más viral que buscar por texto
-  const hashtagSlug = query.replace('#', '').replace(/[^a-z0-9]/gi, '').toLowerCase();
-  const hashtagUrl = `https://www.tiktok.com/tag/${hashtagSlug}`;
-  console.log(`  [URL] ${hashtagUrl}`);
+  // Usar campo 'hashtags' del actor clockworks/tiktok-scraper
+  // Acepta el hashtag con o sin # → devuelve feed del hashtag ordenado por popularidad
+  const hashtagSlug = query.replace('#', '').toLowerCase();
+  console.log(`  [HASHTAG] #${hashtagSlug}`);
 
   const input = {
-    startUrls: [{ url: hashtagUrl }],
-    maxItems: n,
+    hashtags: [hashtagSlug],
+    resultsPerPage: n,
     shouldDownloadVideos: false,
     shouldDownloadCovers: false,
     proxyCountryCode: 'US'
