@@ -18,7 +18,7 @@ const APIFY_API_KEY = process.env.APIFY_API_KEY || '';
 
 // Queries de descubrimiento — 2 hashtags × 50 vídeos = 100 vídeos
 const FASE1_QUERIES = ['tiktokmademebuyit', 'kitchengadgets'];
-const VIDEOS_PER_QUERY = 40; // 40 × 2 queries = 80 vídeos totales
+const VIDEOS_PER_QUERY = 30; // 30 × 2 queries = 60 vídeos totales
 const MIN_LIKES = 500; // filtro de popularidad mínima en Apify
 
 // ── Job queue simple ──────────────────────────────────────────────────────────
