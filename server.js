@@ -250,14 +250,63 @@ function agrupar(videos, productMap) {
   return { confirmados, senales };
 }
 
+
+// Buscar por nombre de producto (Fase 2) — usa searchQueries, no hashtags
+async function scrapeByName(productName, n) {
+  console.log(`[FASE2] Buscando: "${productName}" × ${n} vídeos`);
+
+  const input = {
+    searchQueries: [productName],
+    searchSection: '/video',
+    videoSearchSorting: 'MOST_LIKED',
+    videoSearchDateFilter: 'PAST_MONTH',
+    resultsPerPage: n,
+    shouldDownloadVideos: false,
+    shouldDownloadCovers: false,
+    proxyCountryCode: 'US'
+  };
+
+  const runRes = await fetch('https://api.apify.com/v2/acts/clockworks~tiktok-scraper/runs?memory=4096', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${APIFY_API_KEY}` },
+    body: JSON.stringify(input)
+  });
+
+  if (runRes.status !== 200 && runRes.status !== 201) {
+    const err = await runRes.json();
+    throw new Error(`Apify ${runRes.status}: ${JSON.stringify(err)}`);
+  }
+
+  const runData = await runRes.json();
+  const runId = runData.data?.id;
+  const datasetId = runData.data?.defaultDatasetId;
+
+  let status = 'RUNNING', attempts = 0;
+  while (status === 'RUNNING' && attempts < 120) {
+    await new Promise(r => setTimeout(r, 5000));
+    const s = await fetch(`https://api.apify.com/v2/actor-runs/${runId}`, {
+      headers: { 'Authorization': `Bearer ${APIFY_API_KEY}` }
+    });
+    status = (await s.json()).data?.status;
+    attempts++;
+    if (status !== 'RUNNING') break;
+  }
+
+  if (status !== 'SUCCEEDED') throw new Error(`Run terminó: ${status}`);
+
+  const itemsRes = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?limit=50`, {
+    headers: { 'Authorization': `Bearer ${APIFY_API_KEY}` }
+  });
+  return await itemsRes.json();
+}
+
 // ── Fase 2: validar señales únicas ───────────────────────────────────────────
 async function validarSenal(senal, productMap) {
   console.log(`[FASE2] Buscando: "${senal.product_name}" (${senal.total_views.toLocaleString()} views)`);
 
   try {
     // Buscar 20 vídeos del producto por nombre
-    const slug = senal.product_name.replace(/[^a-z0-9]/gi, '').toLowerCase();
-    const videos = await scrapeHashtag(`#${slug}`, 20);
+    const videos = await scrapeByName(senal.product_name, 20);
     if (!videos.length) { console.log(`  Sin resultados`); return null; }
 
     // Identificar productos en estos 20 vídeos
