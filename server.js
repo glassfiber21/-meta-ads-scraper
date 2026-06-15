@@ -42,7 +42,7 @@ const QUERIES_CONFIG = [
   { query: '#catproducts',        videos: 15 },
   // ===== COCINA =====
   { query: '#kitchengadgets',     videos: 15 },
-  { query: '#kitchenfinds',       videos: 15 },
+  { query: '#kitchenhacks',       videos: 15 },
   { query: '#kitchenessentials',  videos: 15 },
   { query: '#cookinggadgets',     videos: 15 },
   { query: '#kitchenorganization',videos: 15 },
@@ -50,12 +50,12 @@ const QUERIES_CONFIG = [
   { query: '#storagehacks',       videos: 15 },
   { query: '#storageideas',       videos: 15 },
   { query: '#closetorganization', videos: 15 },
-  { query: '#homeorganization',   videos: 15 },
+  { query: '#homefinds',          videos: 15 },
   { query: '#organizationhacks',  videos: 15 },
   // ===== TECH =====
   { query: '#techgadgets',        videos: 15 },
-  { query: '#deskgadgets',        videos: 15 },
-  { query: '#gadgetreview',       videos: 15 },
+  { query: '#officegadgets',      videos: 15 },
+  { query: '#gadgets',            videos: 15 },
   // ===== LIMPIEZA =====
   { query: '#cleaninggadgets',    videos: 15 },
   { query: '#cleaningproducts',   videos: 15 },
@@ -64,7 +64,7 @@ const QUERIES_CONFIG = [
 const FILTROS = {
   min_views: 50000,
   min_likes: 1000,
-  min_fans: 500,
+  min_fans: 1000,
   // exclude_ads eliminado del actor — filtramos nosotros (cambio 1)
 };
 
@@ -962,8 +962,8 @@ app.get('/cazador', (req, res) => res.sendFile(path.join(__dirname, 'cazador.htm
 app.use(express.static(__dirname));
 
 app.listen(PORT, () => {
-  console.log(`[SERVER] Cazador v8.5 en puerto ${PORT}`);
-  console.log(`[FASE1] ${QUERIES_CONFIG.length} hashtags × 5 vídeos = ${QUERIES_CONFIG.length * 5} vídeos`);
+  console.log(`[SERVER] Cazador v8.6 en puerto ${PORT}`);
+  console.log(`[FASE1] ${QUERIES_CONFIG.length} hashtags × ${QUERIES_CONFIG[0].videos} vídeos = ${QUERIES_CONFIG.reduce((s,q)=>s+q.videos,0)} vídeos`);
   console.log(`[FILTROS] views>=${FILTROS.min_views} | likes>=${FILTROS.min_likes} | fans>=${FILTROS.min_fans} | ADs: filtro propio`);
   console.log(`[FASE2] ${FASE2_VIDEOS_POR_PRODUCTO}v/producto | min ${FASE2_MIN_VIDEOS}v ${FASE2_MIN_CREATORS}c | penaliza >${FASE2_PENALIZE_DAYS}d`);
   console.log(`[SCORING] 50%creadores 25%videos 15%views 10%likes +5bonus(≥3ADs) -30%(>180d)`);
