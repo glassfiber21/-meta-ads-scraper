@@ -34,32 +34,31 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 // 20 hashtags × 5 vídeos = 100 vídeos — más superficie, más categorías
 // Seleccionados por producir productos únicos y vendibles, no hauls ni tutoriales
 const QUERIES_CONFIG = [
-  // Mascotas — los mejores en runs anteriores
-  { query: '#petproducts',       videos: 5 },
-  { query: '#petgadgets',        videos: 5 },
-  { query: '#dogproducts',       videos: 5 },
-  { query: '#dogmusthaves',      videos: 5 },
-  { query: '#cattok',            videos: 5 },
-  // Cocina — alta conversión
-  { query: '#kitchengadgets',    videos: 5 },
-  { query: '#kitchenfinds',      videos: 5 },
-  { query: '#cookinggadgets',    videos: 5 },
-  { query: '#kitchenmusthaves',  videos: 5 },
-  // Hogar/organización — orientados a producto único
-  { query: '#homeorganization',  videos: 5 },
-  { query: '#storageideas',      videos: 5 },
-  { query: '#storagehacks',      videos: 5 },
-  { query: '#closetorganization',videos: 5 },
-  // Tech/gadgets — nicho con ticket alto
-  { query: '#techgadgets',       videos: 5 },
-  { query: '#desksetup',         videos: 5 },
-  // Compra directa — exploración secundaria
-  { query: '#tiktokmademebuyit', videos: 5 },
-  { query: '#amazonfinds',       videos: 5 },
-  { query: '#productfinds',      videos: 5 },
-  // Fitness/belleza — categorías emergentes
-  { query: '#fitnessgadgets',    videos: 5 },
-  { query: '#beautyfinds',       videos: 5 },
+  // ===== MASCOTAS =====
+  { query: '#petproducts',        videos: 5 },
+  { query: '#petgadgets',         videos: 5 },
+  { query: '#petfinds',           videos: 5 },
+  { query: '#dogmusthaves',       videos: 5 },
+  { query: '#catproducts',        videos: 5 },
+  // ===== COCINA =====
+  { query: '#kitchengadgets',     videos: 5 },
+  { query: '#kitchenfinds',       videos: 5 },
+  { query: '#kitchenessentials',  videos: 5 },
+  { query: '#cookinggadgets',     videos: 5 },
+  { query: '#kitchenorganization',videos: 5 },
+  // ===== HOGAR / ORGANIZACIÓN =====
+  { query: '#storagehacks',       videos: 5 },
+  { query: '#storageideas',       videos: 5 },
+  { query: '#closetorganization', videos: 5 },
+  { query: '#homeorganization',   videos: 5 },
+  { query: '#organizationhacks',  videos: 5 },
+  // ===== TECH =====
+  { query: '#techgadgets',        videos: 5 },
+  { query: '#deskgadgets',        videos: 5 },
+  { query: '#gadgetreview',       videos: 5 },
+  // ===== LIMPIEZA =====
+  { query: '#cleaninggadgets',    videos: 5 },
+  { query: '#cleaningproducts',   videos: 5 },
 ];
 
 const FILTROS = {
@@ -180,6 +179,12 @@ function filtrarVideos(videos, hashtagStats) {
     if (fans < FILTROS.min_fans)                              { fans_bajos++;  return false; }
     if (views < FILTROS.min_views && likes < FILTROS.min_likes) { views_bajos++; return false; }
 
+    // Filtro fecha: descartar vídeos con más de 180 días — independiente del actor
+    if (v.createTimeISO) {
+      const days = Math.floor((Date.now() - new Date(v.createTimeISO).getTime()) / 86400000);
+      if (days > 180) return false;
+    }
+
     // Registrar en stats de hashtag (cambio 16: hashtag ROI)
     if (hashtagStats && v._sourceHashtag) {
       if (!hashtagStats[v._sourceHashtag]) hashtagStats[v._sourceHashtag] = { total: 0, passed: 0, identified: 0, validated: 0 };
@@ -276,6 +281,17 @@ Reply ONLY with a JSON array, no markdown:
 function agrupar(videos, productMap) {
   const groups = {};
 
+  // Deduplicar por video ID — el mismo vídeo puede aparecer en 2 hashtags
+  // y falsear el conteo de hashtags distintos
+  const seenIds = new Set();
+  videos = videos.filter(v => {
+    const id = String(v.id || '');
+    if (!id || seenIds.has(id)) return false;
+    seenIds.add(id);
+    return true;
+  });
+  console.log(`[DEDUP] ${videos.length} vídeos únicos tras deduplicar por ID`);
+
   for (const v of videos) {
     const raw = productMap[String(v.id)];
     if (!raw || raw.product === 'unknown' || raw.confidence < 0.6 || (raw.specificityScore || 0) < 60) continue;
@@ -352,9 +368,10 @@ function agrupar(videos, productMap) {
     };
 
     // ── Fase 2A: confirmación GRATIS por cruce de hashtags ────────────────────
-    // Condición: ≥2 hashtags distintos AND ≥2 creadores distintos AND ≥3 vídeos
-    // La condición de vídeos evita confirmar con señales muy débiles (1 vídeo por hashtag)
-    const fase2A_ok = ht >= 2 && c >= 2 && vv >= 3;
+    // Condición: ≥2 hashtags distintos AND ≥2 creadores distintos
+    // Con 5 vídeos/hashtag, pedir vv>=3 es matemáticamente muy restrictivo
+    // El cruce de 2 hashtags con 2 creadores distintos ya es señal suficiente
+    const fase2A_ok = ht >= 2 && c >= 2;
 
     const label2A = ht >= 4 ? '✓✓✓✓ CONFIRMADO (4+ hashtags)'
                   : ht === 3 ? '✓✓✓ CONFIRMADO (3 hashtags)'
@@ -415,7 +432,7 @@ async function scrapeByName(productName, n) {
   const input = {
     searchQueries: [productName],
     searchSection: '/video',
-    videoSearchSorting: 'MOST_VIEWED',        // cambio 7: más fiable que MOST_LIKED
+    videoSearchSorting: 'MOST_RELEVANT',      // v8.3: más preciso, menos ruido semántico
     videoSearchDateFilter: 'PAST_3_MONTHS',   // cambio 7: captura más virales recientes
     resultsPerPage: n,
     shouldDownloadVideos: false,
@@ -912,10 +929,10 @@ app.get('/cazador', (req, res) => res.sendFile(path.join(__dirname, 'cazador.htm
 app.use(express.static(__dirname));
 
 app.listen(PORT, () => {
-  console.log(`[SERVER] Cazador v8.2 en puerto ${PORT}`);
+  console.log(`[SERVER] Cazador v8.3 en puerto ${PORT}`);
   console.log(`[FASE1] ${QUERIES_CONFIG.length} hashtags × 5 vídeos = ${QUERIES_CONFIG.length * 5} vídeos`);
   console.log(`[FILTROS] views>=${FILTROS.min_views} | likes>=${FILTROS.min_likes} | fans>=${FILTROS.min_fans} | ADs: filtro propio`);
   console.log(`[FASE2] ${FASE2_VIDEOS_POR_PRODUCTO}v/producto | min ${FASE2_MIN_VIDEOS}v ${FASE2_MIN_CREATORS}c | penaliza >${FASE2_PENALIZE_DAYS}d`);
   console.log(`[SCORING] 50%creadores 25%videos 15%views 10%likes +5bonus(≥3ADs) -30%(>180d)`);
-  console.log(`[MATCHING] canonical exacto + Fase2A gratis (cruce hashtags) + Fase2B filtro duro`);
+  console.log(`[MATCHING] canonical + Fase2A gratis + Fase2B MOST_RELEVANT + filtro 180d + dedup`);
 });
