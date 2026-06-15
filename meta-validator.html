@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meta Ads Validator</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:      #0d0d0d;
+    --surface: #161616;
+    --border:  #2a2a2a;
+    --text:    #e8e8e8;
+    --muted:   #666;
+    --accent:  #1877f2;
+    --green:   #22c55e;
+    --orange:  #f59e0b;
+    --red:     #ef4444;
+  }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; min-height: 100vh; }
+  header { padding: 28px 32px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 14px; }
+  .logo { width: 36px; height: 36px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  header p  { font-size: 12px; color: var(--muted); }
+  .container { max-width: 1100px; margin: 0 auto; padding: 32px; }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 24px; }
+  .panel h2 { font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 16px; }
+  .products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  .product-chip {
+    background: #1a1a1a; border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px; cursor: pointer; transition: border-color .15s;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .product-chip:hover { border-color: var(--accent); }
+  .product-chip.selected { border-color: var(--accent); background: #0d1b3e; }
+  .product-chip .name  { font-size: 13px; font-weight: 500; }
+  .product-chip .score { font-size: 11px; color: var(--muted); }
+  .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
+  .btn {
+    padding: 10px 22px; border-radius: 8px; border: none; cursor: pointer;
+    font-size: 13px; font-weight: 600; transition: opacity .15s;
+  }
+  .btn:hover { opacity: .85; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-single  { background: #2a2a2a; color: var(--text); }
+  .btn-load    { background: #1a1a1a; color: var(--muted); border: 1px solid var(--border); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .progress-bar { background: #1a1a1a; border-radius: 8px; height: 6px; overflow: hidden; margin: 12px 0; }
+  .progress-fill { height: 100%; background: var(--accent); transition: width .4s; border-radius: 8px; }
+  .status-msg { font-size: 13px; color: var(--muted); margin-top: 8px; min-height: 18px; }
+  .results-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .results-table th { text-align: left; padding: 10px 12px; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--border); font-size: 11px; text-transform: uppercase; }
+  .results-table td { padding: 12px; border-bottom: 1px solid #1a1a1a; vertical-align: top; }
+  .results-table tr:last-child td { border-bottom: none; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .badge-green  { background: #14532d; color: var(--green); }
+  .badge-orange { background: #451a03; color: var(--orange); }
+  .badge-red    { background: #450a0a; color: var(--red); }
+  .badge-blue   { background: #0d1b3e; color: var(--accent); }
+  .domains-list { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.6; }
+  .score-final { font-size: 18px; font-weight: 700; }
+  .score-up    { color: var(--green); }
+  .score-down  { color: var(--red); }
+  .score-same  { color: var(--orange); }
+  .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .tag-tiktok { color: #fe2c55; font-weight: 600; }
+  .tag-meta   { color: var(--accent); font-weight: 600; }
+  .error-box  { background: #1a0a0a; border: 1px solid #4a1a1a; border-radius: 8px; padding: 12px 16px; color: var(--red); font-size: 13px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">📘</div>
+  <div>
+    <h1>Meta Ads Validator</h1>
+    <p>Valida productos TikTok contra Meta Ads Library · Actor ${META_ACTOR}</p>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- Panel: productos base -->
+  <div class="panel">
+    <h2>Productos detectados en TikTok (${PRODUCTOS_TIKTOK.length})</h2>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:14px">
+      Selecciona uno para test individual o lanza validación completa
+    </p>
+    <div class="products-grid" id="chips"></div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="btnAll" onclick="validarTodos()">
+        🚀 Validar todos en Meta Ads
+      </button>
+      <button class="btn btn-single" id="btnOne" onclick="validarSeleccionado()" disabled>
+        🔍 Validar seleccionado
+      </button>
+      <button class="btn btn-load" onclick="cargarUltimos()">
+        💾 Cargar último resultado guardado
+      </button>
+    </div>
+
+    <div class="progress-bar" id="progressBar" style="display:none">
+      <div class="progress-fill" id="progressFill" style="width:0%"></div>
+    </div>
+    <div class="status-msg" id="statusMsg"></div>
+    <div class="error-box" id="errorBox" style="display:none"></div>
+  </div>
+
+  <!-- Panel: resultados -->
+  <div class="panel" id="resultsPanel" style="display:none">
+    <h2>Ranking final <span style="color:var(--muted);font-weight:400;font-size:11px">(TikTok 60% + Meta 40%)</span></h2>
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Producto</th>
+          <th class="tag-tiktok">TikTok</th>
+          <th class="tag-meta">Anunciantes válidos</th>
+          <th class="tag-meta">Ads matched / total</th>
+          <th class="tag-meta">Match %</th>
+          <th class="tag-meta">Meta score</th>
+          <th>Score final</th>
+          <th>Landing pages</th>
+        </tr>
+      </thead>
+      <tbody id="resultsBody"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+const PRODUCTOS = [];
+let selectedIdx = null;
+let polling     = null;
+
+// Renderizar chips
+function renderChips() {
+  const grid = document.getElementById('chips');
+  grid.innerHTML = PRODUCTOS.map((p, i) => \`
+    <div class="product-chip" id="chip-\${i}" onclick="selectChip(\${i})">
+      <span class="name">\${p.product}</span>
+      <span class="score">TikTok \${p.tiktok_score} · \${p.creators}c \${p.videos}v</span>
+    </div>
+  \`).join('');
+}
+
+function selectChip(i) {
+  document.querySelectorAll('.product-chip').forEach(c => c.classList.remove('selected'));
+  document.getElementById('chip-' + i).classList.add('selected');
+  selectedIdx = i;
+  document.getElementById('btnOne').disabled = false;
+}
+
+// Polling job
+function pollJob(jobId, totalItems, callback) {
+  let n = 0;
+  polling = setInterval(async () => {
+    try {
+      const r = await fetch('/job-status/' + jobId);
+      const d = await r.json();
+      n++;
+      document.getElementById('statusMsg').textContent = d.progress || '';
+
+      if (totalItems) {
+        const pct = Math.min(95, (n / (totalItems * 12)) * 100);
+        document.getElementById('progressFill').style.width = pct + '%';
+      }
+
+      if (d.status === 'done') {
+        clearInterval(polling);
+        document.getElementById('progressFill').style.width = '100%';
+        setTimeout(() => { document.getElementById('progressBar').style.display = 'none'; }, 800);
+        callback(null, d.result);
+      } else if (d.status === 'error') {
+        clearInterval(polling);
+        callback(d.result?.error || 'Error desconocido');
+      }
+    } catch(e) { /* sigue intentando */ }
+  }, 4000);
+}
+
+function setLoading(on) {
+  document.getElementById('btnAll').disabled = on;
+  document.getElementById('btnOne').disabled = on || selectedIdx === null;
+  document.getElementById('progressBar').style.display = on ? 'block' : 'none';
+  document.getElementById('errorBox').style.display = 'none';
+  if (on) document.getElementById('progressFill').style.width = '0%';
+}
+
+function showError(msg) {
+  const box = document.getElementById('errorBox');
+  box.textContent = '⚠ ' + msg;
+  box.style.display = 'block';
+  setLoading(false);
+}
+
+async function validarTodos() {
+  setLoading(true);
+  document.getElementById('statusMsg').textContent = 'Lanzando validación...';
+  try {
+    const r = await fetch('/validate-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const d = await r.json();
+    if (!d.job_id) throw new Error(d.error || 'Sin job_id');
+    pollJob(d.job_id, PRODUCTOS.length, (err, result) => {
+      setLoading(false);
+      if (err) return showError(err);
+      renderResults(result.productos);
+    });
+  } catch(e) { showError(e.message); }
+}
+
+async function validarSeleccionado() {
+  if (selectedIdx === null) return;
+  const p = PRODUCTOS[selectedIdx];
+  setLoading(true);
+  document.getElementById('statusMsg').textContent = 'Lanzando validación de "' + p.product + '"...';
+  try {
+    const r = await fetch('/validate-one', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product: p.product, tiktok_score: p.tiktok_score, creators: p.creators, videos: p.videos }),
+    });
+    const d = await r.json();
+    if (!d.job_id) throw new Error(d.error || 'Sin job_id');
+    pollJob(d.job_id, 1, (err, result) => {
+      setLoading(false);
+      if (err) return showError(err);
+      renderResults([result.producto]);
+    });
+  } catch(e) { showError(e.message); }
+}
+
+async function cargarUltimos() {
+  document.getElementById('statusMsg').textContent = 'Cargando resultados guardados...';
+  try {
+    const r = await fetch('/last-results');
+    if (!r.ok) { document.getElementById('statusMsg').textContent = 'No hay resultados guardados aún.'; return; }
+    const d = await r.json();
+    document.getElementById('statusMsg').textContent = 'Cargado desde ' + (d.saved_at ? new Date(d.saved_at).toLocaleString('es') : 'caché');
+    renderResults(d.productos);
+  } catch(e) { showError(e.message); }
+}
+
+function scoreBadge(score) {
+  if (score >= 70) return \`<span class="badge badge-green">\${score}</span>\`;
+  if (score >= 40) return \`<span class="badge badge-orange">\${score}</span>\`;
+  return \`<span class="badge badge-red">\${score}</span>\`;
+}
+
+function renderResults(productos) {
+  if (!productos || !productos.length) return;
+  const tbody = document.getElementById('resultsBody');
+  tbody.innerHTML = productos.map((p, i) => {
+    const m = p.meta;
+    const sfClass = p.score_final >= p.tiktok_score ? 'score-up' : p.score_final < p.tiktok_score * 0.8 ? 'score-down' : 'score-same';
+    const domains = m?.landing_pages?.slice(0,5).join('<br>') || '—';
+    return \`
+      <tr>
+        <td style="color:var(--muted)">\${i+1}</td>
+        <td><strong>\${p.product}</strong>
+          <div style="font-size:11px;color:var(--muted);margin-top:3px">\${p.creators}c · \${p.videos}v</div>
+        </td>
+        <td>\${scoreBadge(p.tiktok_score)}</td>
+        <td>\${m ? \`<span class="badge badge-blue">\${m.advertisers_matched ?? 0}</span>\` : '—'}</td>
+        <td>\${m ? `${m.matched_ads ?? 0} / ${m.total_ads_found ?? 0}` : '—'}</td>
+        <td>\${m ? scoreBadge(m.meta_score) : '—'}</td>
+        <td><span class="score-final \${sfClass}">\${p.score_final ?? '—'}</span></td>
+        <td><div class="domains-list">\${domains}</div></td>
+      </tr>
+    \`;
+  }).join('');
+  document.getElementById('resultsPanel').style.display = 'block';
+  document.getElementById('resultsPanel').scrollIntoView({ behavior: 'smooth' });
+}
+
+fetch('/api/productos').then(r=>r.json()).then(d=>{
+  PRODUCTOS.push(...d);
+  renderChips();
+});
+</script>
+</body>
+</html>`
