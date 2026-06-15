@@ -51,6 +51,16 @@
   .tag-tiktok { color: #fe2c55; font-weight: 600; }
   .tag-meta   { color: var(--accent); font-weight: 600; }
   .error-box  { background: #1a0a0a; border: 1px solid #4a1a1a; border-radius: 8px; padding: 12px 16px; color: var(--red); font-size: 13px; margin-top: 12px; }
+  .ads-toggle { cursor: pointer; font-size: 11px; color: var(--accent); text-decoration: underline; margin-top: 4px; display: inline-block; }
+  .ads-detail { display: none; margin-top: 10px; }
+  .ads-detail.open { display: block; }
+  .ad-card { background: #111; border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-bottom: 6px; font-size: 12px; }
+  .ad-card .ad-advertiser { font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .ad-card .ad-text { color: var(--muted); margin-bottom: 4px; line-height: 1.5; }
+  .ad-card .ad-link a { color: var(--accent); word-break: break-all; }
+  .ad-card .ad-days { font-size: 11px; color: #444; margin-top: 4px; }
+  .ad-card.match-yes { border-left: 3px solid var(--green); }
+  .ad-card.match-no  { border-left: 3px solid #333; opacity: 0.5; }
 </style>
 </head>
 <body>
@@ -233,6 +243,29 @@ function renderResults(productos) {
     var m = p.meta;
     var sfClass = p.score_final >= p.tiktok_score ? 'score-up' : p.score_final < p.tiktok_score * 0.8 ? 'score-down' : 'score-same';
     var domains = m && m.landing_pages ? m.landing_pages.slice(0,5).join('<br>') : '—';
+    // Ads detail
+    var adsHtml = '';
+    if (m && m.ads_raw && m.ads_raw.length) {
+      var matchedOnly = m.ads_raw.filter(function(a) { return a.match; });
+      // deduplicate by advertiser
+      var seen = {};
+      var uniq = [];
+      for (var k = 0; k < matchedOnly.length; k++) {
+        if (!seen[matchedOnly[k].advertiser]) {
+          seen[matchedOnly[k].advertiser] = true;
+          uniq.push(matchedOnly[k]);
+        }
+      }
+      for (var k = 0; k < uniq.length; k++) {
+        var a = uniq[k];
+        adsHtml += '<div class="ad-card match-yes">';
+        adsHtml += '<div class="ad-advertiser">📢 ' + (a.advertiser || '—') + '</div>';
+        adsHtml += '<div class="ad-text">' + (a.ad_text ? a.ad_text.slice(0,150) + '...' : '—') + '</div>';
+        adsHtml += '<div class="ad-link"><a href="' + (a.landing || '#') + '" target="_blank">' + (a.domain || a.landing || '—') + '</a></div>';
+        adsHtml += '<div class="ad-days">' + (a.days !== null ? a.days + ' días activo' : '') + '</div>';
+        adsHtml += '</div>';
+      }
+    }
     var advMatched = m ? (m.advertisers_matched !== undefined ? m.advertisers_matched : 0) : '—';
     var matchedAds = m ? (m.matched_ads !== undefined ? m.matched_ads : 0) : '—';
     var totalAds   = m ? (m.total_ads_found !== undefined ? m.total_ads_found : 0) : '—';
@@ -247,12 +280,29 @@ function renderResults(productos) {
     html += '<td>' + matchRate + '</td>';
     html += '<td>' + metaScore + '</td>';
     html += '<td><span class="score-final ' + sfClass + '">' + (p.score_final !== undefined ? p.score_final : '—') + '</span></td>';
-    html += '<td><div class="domains-list">' + domains + '</div></td>';
+    html += '<td>';
+    html += '<div class="domains-list">' + domains + '</div>';
+    if (adsHtml) {
+      html += '<span class="ads-toggle" onclick="toggleAds(this)">ver anuncios ▾</span>';
+      html += '<div class="ads-detail">' + adsHtml + '</div>';
+    }
+    html += '</td>';
     html += '</tr>';
   }
   tbody.innerHTML = html;
   document.getElementById('resultsPanel').style.display = 'block';
   document.getElementById('resultsPanel').scrollIntoView({ behavior: 'smooth' });
+}
+
+function toggleAds(el) {
+  var detail = el.nextElementSibling;
+  if (detail.classList.contains('open')) {
+    detail.classList.remove('open');
+    el.textContent = 'ver anuncios ▾';
+  } else {
+    detail.classList.add('open');
+    el.textContent = 'ocultar anuncios ▴';
+  }
 }
 
 // Cargar productos al iniciar
