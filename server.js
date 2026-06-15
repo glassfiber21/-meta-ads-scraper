@@ -1,23 +1,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// CAZADOR v8.0 — Pipeline completo Fase 1 + Fase 2
-// Cambios v8.0:
-//  1. excludeAds eliminado del actor Apify — filtramos nosotros con lógica propia
-//  2. Nueva lógica AD: conservar si tiene keywords de venta, descartar si es AD puro
-//  3. Prompt Claude mejorado: descartar hauls con >3 productos visibles
-//  4. 20 hashtags × 5 vídeos (más superficie, menos profundidad)
-//  5. Nuevos hashtags: eliminados #homehacks #organizationideas #cleaningtips #gadgets
-//  6. Fase 2: 10 vídeos por producto (coste controlado)
-//  7. Fase 2: videoSearchSorting MOST_VIEWED + PAST_3_MONTHS
-//  8. Fase 2: filtrar vídeos < 50k views antes de contar creadores
-//  9. Fase 2: calcular oldest_days, newest_days, ads_count como bonus
-// 10. Mínimo 3 creadores y 5 vídeos para aprobar producto
-// 11. Penalización si oldest_days > 180 (producto viejo)
-// 12. Nuevo scoring: 50% creadores / 25% vídeos / 15% views / 10% likes
-// 13. Bonus +5 score si hay ≥3 ADs del mismo producto (señal de mercado activo)
-// 14. Endpoint /producto/:slug con página HTML de validación
-// 15. Cache de vídeos validados por producto para página de detalle
-// 16. Dashboard: tabla hashtag ROI (vídeos → identificados → validados)
-// 17. Búsqueda Fase 2 solo en inglés / mercado USA
+// CAZADOR v9.0 — Run definitivo
+// Cambios v9.0:
+//  1. 20 hashtags optimizados por datos reales del run v8.6
+//  2. Eliminados: #kitchenhacks (0% ratio, vídeos 4 años), #officegadgets (0.1M avg),
+//     #storageideas, #homefinds, #cookinggadgets, #petfinds
+//  3. Añadidos: #amazonfinds, #tiktokmademebuyit, #gadgetreview, #cleaninghacks, #homeorganization
+//  4. 400 vídeos totales (20 hashtags × 20 vídeos)
+//  5. Fase 2B: sube de 10 a 40 validaciones por run
+//  6. Prompt v9.0: anti-falsos positivos + diccionario de sinónimos
+//     (fusiona FlyClense duplicado, closet tours descartados, etc.)
+//  7. Umbrales Fase 2B: min 2 creadores / 2 vídeos (más permisivo, más tarjetas)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const express = require('express');
@@ -35,30 +27,37 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 // Seleccionados por producir productos únicos y vendibles, no hauls ni tutoriales
 const QUERIES_CONFIG = [
   // ===== MASCOTAS =====
-  { query: '#petproducts',        videos: 15 },
-  { query: '#petgadgets',         videos: 15 },
-  { query: '#petfinds',           videos: 15 },
-  { query: '#dogmusthaves',       videos: 15 },
-  { query: '#catproducts',        videos: 15 },
+  // #petfinds, #cookinggadgets, #homefinds eliminados (ratio <15%, avg views bajo)
+  { query: '#petproducts',        videos: 20 },
+  { query: '#petgadgets',         videos: 20 },
+  { query: '#dogmusthaves',       videos: 20 },
+  { query: '#catproducts',        videos: 20 },
   // ===== COCINA =====
-  { query: '#kitchengadgets',     videos: 15 },
-  { query: '#kitchenhacks',       videos: 15 },
-  { query: '#kitchenessentials',  videos: 15 },
-  { query: '#cookinggadgets',     videos: 15 },
-  { query: '#kitchenorganization',videos: 15 },
+  // #kitchenhacks ELIMINADO — devuelve vídeos de 2021-2022 (4 años antigüedad, 0% ratio)
+  // #cookinggadgets ELIMINADO — ratio 13%, mayoría ads puros
+  { query: '#kitchengadgets',     videos: 20 },
+  { query: '#kitchenessentials',  videos: 20 },
+  { query: '#kitchenorganization',videos: 20 },
   // ===== HOGAR / ORGANIZACIÓN =====
-  { query: '#storagehacks',       videos: 15 },
-  { query: '#storageideas',       videos: 15 },
-  { query: '#closetorganization', videos: 15 },
-  { query: '#homefinds',          videos: 15 },
-  { query: '#organizationhacks',  videos: 15 },
+  // #storageideas ELIMINADO — ratio 20%, avg views 0.1M
+  // #homefinds ELIMINADO — ratio 13%, avg views 0.4M
+  { query: '#storagehacks',       videos: 20 },
+  { query: '#closetorganization', videos: 20 },
+  { query: '#organizationhacks',  videos: 20 },
+  { query: '#homeorganization',   videos: 20 }, // NUEVO — alta demanda orgánica
   // ===== TECH =====
-  { query: '#techgadgets',        videos: 15 },
-  { query: '#officegadgets',      videos: 15 },
-  { query: '#gadgets',            videos: 15 },
+  // #officegadgets ELIMINADO — ratio 27%, avg views 0.1M muy bajo
+  { query: '#techgadgets',        videos: 20 },
+  { query: '#gadgets',            videos: 20 }, // ⭐ mejor ratio 80%
+  { query: '#gadgetreview',       videos: 20 }, // NUEVO — contenido de reseña = producto claro
   // ===== LIMPIEZA =====
-  { query: '#cleaninggadgets',    videos: 15 },
-  { query: '#cleaningproducts',   videos: 15 },
+  { query: '#cleaninggadgets',    videos: 20 },
+  { query: '#cleaningproducts',   videos: 20 }, // ⭐ mejor validados (2 tarjetas)
+  { query: '#cleaninghacks',      videos: 20 }, // NUEVO — alto volumen orgánico
+  // ===== DESCUBRIMIENTO AMPLIO =====
+  // Nuevos hashtags de alta conversión para dropshipping
+  { query: '#amazonfinds',        videos: 20 }, // NUEVO — señal de compra directa
+  { query: '#tiktokmademebuyit',  videos: 20 }, // NUEVO — señal de compra más fuerte de TikTok
 ];
 
 const FILTROS = {
@@ -85,8 +84,9 @@ const AD_SALE_KEYWORDS = [
 
 // Umbrales Fase 2
 const FASE2_VIDEOS_POR_PRODUCTO = 10;  // coste controlado
-const FASE2_MIN_VIDEOS = 5;            // mínimo vídeos virales para aprobar
-const FASE2_MIN_CREATORS = 3;          // mínimo creadores distintos para aprobar
+const FASE2_MIN_VIDEOS = 2;            // mínimo vídeos virales para aprobar
+const FASE2_MIN_CREATORS = 2;          // mínimo creadores distintos para aprobar
+const FASE2_MAX_VALIDACIONES = 40;     // máx señales a validar en Fase 2B por run
 const FASE2_PENALIZE_DAYS = 180;       // penalizar si oldest_days > 180
 
 // ── Job queue ─────────────────────────────────────────────────────────────────
@@ -210,31 +210,40 @@ async function identificarProductos(videos, hashtagStats) {
       text: ((v.text || '') + ' ' + (v.hashtags || []).map(h => typeof h === 'string' ? h : h.name || '').join(' ')).slice(0, 300)
     }));
 
-    // Prompt v8.3: equilibrio entre precisión y generosidad — no descartar productos válidos
-    const prompt = `You are analyzing TikTok videos to find dropshipping product opportunities.
+    // Prompt v9.0: anti-falsos positivos + fusión de sinónimos + ejemplos negativos
+    const prompt = `You are analyzing TikTok videos to find PHYSICAL DROPSHIPPING PRODUCTS — items someone can buy and resell.
 
 Videos:
 ${JSON.stringify(adsJson, null, 2)}
 
 RULES:
-1. Identify the MAIN physical product shown or promoted in the video.
-2. Be specific but not overly strict: "Kitchen Organizer" is fine, "Cold Press Juicer" is better.
-3. Set product = "unknown" ONLY if:
-   - Pure HAUL with 5+ different unrelated products (e.g. "Top 10 Amazon Finds", "20 Amazon Products")
-   - Pure LIFESTYLE with zero product (dancing, vlog, motivational speech)
-   - Completely impossible to identify any product
-4. ACCEPT these as valid products:
-   - A category of product if it's the clear focus ("Storage Solution", "Closet Organizer", "Pet Feeder")
-   - A product shown briefly if it's the main subject of the video
-   - Cleaning products, organizers, pet accessories even if brand is unknown
-5. canonical: lowercase snake_case. Examples:
+1. Identify ONE specific physical product being SOLD or PROMOTED.
+2. Set product = "unknown" if the video is:
+   - A LIFESTYLE/TOUR video (e.g. "closet tour", "kitchen organization tour", "my morning routine")
+   - A TIPS/TUTORIAL without a specific product (e.g. "how to organize your closet", "kitchen cleaning hacks")
+   - A HAUL with 4+ unrelated products
+   - Pure dance, vlog, or motivational content
+   - A CATEGORY with no specific item ("organization ideas", "kitchen essentials", "cleaning products" as a concept)
+
+3. SYNONYM NORMALIZATION — these are the SAME product, use the canonical name:
+   - "Grease-Cutting Cleaner Spray" = "Kitchen Spray Cleaner and Degreaser" = "Heavy-Duty Degreaser Spray" → canonical: "kitchen_degreaser_spray", name: "Kitchen Degreaser Spray"
+   - "Closet Organizer System" = "Closet Organization System" = "Wardrobe Organizer" → canonical: "closet_organizer", name: "Closet Organizer"
+   - "Cat Water Fountain" = "Pet Water Fountain" = "Dog Water Fountain" → canonical: "pet_water_fountain", name: "Pet Water Fountain"
+   - "USB Cleaning Brush" = "Electric Cleaning Brush" = "Rechargeable Cleaning Brush" → canonical: "electric_cleaning_brush", name: "Electric Cleaning Brush"
+   - "Steam Mop" = "Steam Cleaner" = "Multi-Purpose Steam Cleaner" → canonical: "steam_cleaner", name: "Steam Cleaner"
+
+4. ACCEPT as valid products:
+   - A specific gadget, tool, or accessory shown as THE focus of the video
+   - Cleaning products with a clear brand or function (spray, brush, mop)
+   - Pet accessories that are the main subject
+   - Kitchen tools or organizers that are THE product being shown/sold
+
+5. canonical: lowercase snake_case, max 4 words. Examples:
    - "Cold Press Juicer" → "cold_press_juicer"
-   - "Dog Seat Belt" → "dog_seat_belt"  
-   - "Kitchen Organizer" → "kitchen_organizer"
-   - "Closet Organizer" → "closet_organizer"
-   - "Pet Water Fountain" → "pet_water_fountain"
+   - "Dog Seat Belt" → "dog_seat_belt"
    - unknown → "unknown"
-6. specificityScore: 90=exact named product, 70=clear specific product, 50=product category, 0=haul/unknown
+
+6. specificityScore: 90=exact named product, 70=clear product, 50=product category, 0=lifestyle/unknown
 7. confidence: 0.8+=certain, 0.6+=pretty sure, 0.4+=possible, 0=unknown
 
 Reply ONLY with a JSON array, no markdown:
@@ -791,10 +800,10 @@ function renderProductPage(data) {
 
 // ── Endpoints ─────────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => res.json({
-  status: 'ok', version: 'v8.0',
+  status: 'ok', version: 'v9.0',
   fase1: QUERIES_CONFIG,
   filtros: FILTROS,
-  fase2: { videos_por_producto: FASE2_VIDEOS_POR_PRODUCTO, min_videos: FASE2_MIN_VIDEOS, min_creators: FASE2_MIN_CREATORS },
+  fase2: { videos_por_producto: FASE2_VIDEOS_POR_PRODUCTO, min_videos: FASE2_MIN_VIDEOS, min_creators: FASE2_MIN_CREATORS, max_validaciones: FASE2_MAX_VALIDACIONES },
   scoring: { creadores: '50%', videos: '25%', views: '15%', likes: '10%', penalizacion_dias: FASE2_PENALIZE_DAYS, bonus_ads: '≥3 ADs = +5pts' }
 }));
 
@@ -842,8 +851,8 @@ app.get('/buscar', async (req, res) => {
       const pendientes = [];
 
       if (senales.length > 0) {
-        const toValidate = senales.slice(0, 10);
-        const remaining = senales.slice(10);
+        const toValidate = senales.slice(0, FASE2_MAX_VALIDACIONES);
+        const remaining = senales.slice(FASE2_MAX_VALIDACIONES);
         pendientes.push(...remaining);
 
         updateJob(jobId, { progress: `Fase 2: Validando ${toValidate.length} señales...` });
@@ -962,10 +971,10 @@ app.get('/cazador', (req, res) => res.sendFile(path.join(__dirname, 'cazador.htm
 app.use(express.static(__dirname));
 
 app.listen(PORT, () => {
-  console.log(`[SERVER] Cazador v8.6 en puerto ${PORT}`);
+  console.log(`[SERVER] Cazador v9.0 en puerto ${PORT}`);
   console.log(`[FASE1] ${QUERIES_CONFIG.length} hashtags × ${QUERIES_CONFIG[0].videos} vídeos = ${QUERIES_CONFIG.reduce((s,q)=>s+q.videos,0)} vídeos`);
   console.log(`[FILTROS] views>=${FILTROS.min_views} | likes>=${FILTROS.min_likes} | fans>=${FILTROS.min_fans} | ADs: filtro propio`);
-  console.log(`[FASE2] ${FASE2_VIDEOS_POR_PRODUCTO}v/producto | min ${FASE2_MIN_VIDEOS}v ${FASE2_MIN_CREATORS}c | penaliza >${FASE2_PENALIZE_DAYS}d`);
+  console.log(`[FASE2] ${FASE2_VIDEOS_POR_PRODUCTO}v/producto | min ${FASE2_MIN_VIDEOS}v ${FASE2_MIN_CREATORS}c | max ${FASE2_MAX_VALIDACIONES} validaciones | penaliza >${FASE2_PENALIZE_DAYS}d`);
   console.log(`[SCORING] 50%creadores 25%videos 15%views 10%likes +5bonus(≥3ADs) -30%(>180d)`);
   console.log(`[MATCHING] canonical + Fase2A gratis + Fase2B MOST_RELEVANT + filtro 180d + dedup`);
 });

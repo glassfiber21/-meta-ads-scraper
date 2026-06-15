@@ -149,13 +149,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <span class="date-pill">📅 Jun 2026</span>
   </div>
   <div class="htitle">Detecta productos <em>ganadores</em> ahora mismo</div>
-  <div class="hsub">Analizo vídeos virales de TikTok con IA. <strong>20 hashtags × 5 vídeos</strong> → filtros → Claude identifica productos → validación Fase 2.</div>
+  <div class="hsub">Analizo vídeos virales de TikTok con IA. <strong>19 hashtags × 20 vídeos</strong> → filtros → Claude identifica productos → validación Fase 2.</div>
   <button class="cta" id="cta" onclick="run()">
     🎯 <span id="ctxt">Buscar productos ganadores en TikTok</span>
   </button>
   <div class="checks">
-    <span class="chk">≥3 creadores distintos</span>
-    <span class="chk">≥5 vídeos virales</span>
+    <span class="chk">≥2 creadores distintos</span>
+    <span class="chk">≥2 vídeos virales</span>
     <span class="chk">Últimos 90 días</span>
     <span class="chk">Sin hauls ni tutoriales</span>
   </div>
@@ -163,13 +163,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 <!-- Pipeline info bar -->
 <div class="pipe-bar">
-  <div class="pipe-item">🎵 <span>20 hashtags</span></div>
+  <div class="pipe-item">🎵 <span>19 hashtags · 380 vídeos</span></div>
   <span class="pipe-arrow">→</span>
   <div class="pipe-item">🔍 <span>Filtro <span class="pipe-val">≥50k views</span></span></div>
   <span class="pipe-arrow">→</span>
   <div class="pipe-item">🤖 <span>Claude identifica producto único</span></div>
   <span class="pipe-arrow">→</span>
-  <div class="pipe-item">✅ <span>Fase 2: <span class="pipe-val">≥3 creadores · ≥5 vídeos</span></span></div>
+  <div class="pipe-item">✅ <span>Fase 2: <span class="pipe-val">40 validaciones · ≥2c ≥2v</span></span></div>
   <span class="pipe-arrow">→</span>
   <div class="pipe-item">🏆 <span>Score + página masticada</span></div>
 </div>
@@ -231,7 +231,7 @@ function renderCards(productos){
     <div class="rhdr">
       <span class="rttl">${productos.length} producto${productos.length>1?'s':''} validado${productos.length>1?'s':''}</span>
       <div class="rdiv"></div>
-      <span class="rcnt">Ordenados por score · v8.1</span>
+      <span class="rcnt">Ordenados por score · v9.0</span>
       <button class="rbtn" onclick="run()" style="margin-left:8px">↻ Nueva búsqueda</button>
     </div>
     <div class="grid">${cards}</div>
@@ -283,6 +283,7 @@ function renderROI(hashtagRoi, stats){
 }
 
 // ── Señales pendientes ────────────────────────────────────────────────────────
+const MAX_CARDS = 20;
 let _pendingSignals = [];
 
 function renderPending(signals){
@@ -292,28 +293,63 @@ function renderPending(signals){
 
   _pendingSignals = signals;
   const count = signals.length;
-  const previews = signals.slice(0, 6).map(s =>
+  const currentCards = document.querySelectorAll('.card').length;
+  const slotsLeft = MAX_CARDS - currentCards;
+
+  // Si ya tenemos 20 tarjetas, no mostrar botón de validar más
+  if (slotsLeft <= 0) {
+    const div = document.createElement('div');
+    div.id = 'pending-section';
+    div.className = 'pending-section';
+    div.innerHTML = `
+      <div class="pending-header">
+        <div>
+          <div class="pending-title">🏆 Máximo de ${MAX_CARDS} productos alcanzado</div>
+          <div class="pending-sub">Tienes ${count} tendencias más sin analizar. Lanza una nueva búsqueda para ver un nuevo ciclo de productos.</div>
+        </div>
+      </div>`;
+    g('content').appendChild(div);
+    return;
+  }
+
+  const batch = Math.min(10, count, slotsLeft);
+  const previews = signals.slice(0, 8).map(s =>
     `<span class="pending-tag">
       <strong>${s.product_name}</strong>
       <span style="color:#525252"> · ${((s.total_views||0)/1000).toFixed(0)}K views</span>
     </span>`
   ).join('');
-  const more = count > 6 ? `<span class="pending-tag" style="color:#525252">+${count-6} más</span>` : '';
+  const more = count > 8 ? `<span class="pending-tag" style="color:#525252">+${count-8} más</span>` : '';
+
+  // Progreso visual: cuántas tarjetas tenemos de cuántas max
+  const progressPct = Math.round((currentCards / MAX_CARDS) * 100);
 
   const div = document.createElement('div');
   div.id = 'pending-section';
   div.className = 'pending-section';
   div.innerHTML = `
-    <div class="pending-header">
-      <div>
-        <div class="pending-title">⏳ ${count} señal${count>1?'es':''} sin validar — saldo insuficiente</div>
-        <div class="pending-sub">Estas señales encontraron vídeos virales en Fase 1 pero no se pudieron confirmar en Fase 2 por límite de saldo Apify.</div>
-        <div class="pending-tags">${previews}${more}</div>
+    <div style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:12px;color:#6b7280">Productos validados</span>
+        <span style="font-size:12px;color:#fbbf24;font-weight:700">${currentCards} / ${MAX_CARDS}</span>
       </div>
-      <button class="pending-btn" id="validate-btn" onclick="validatePending()">
-        🔍 Validar ${Math.min(count,10)} señales<br>
-        <span style="font-size:11px;opacity:0.75;font-weight:400">~${Math.min(count,10)} créditos Apify</span>
-      </button>
+      <div style="background:#1a1a1a;border-radius:4px;height:6px;overflow:hidden">
+        <div style="background:linear-gradient(90deg,#ea580c,#dc2626);height:100%;width:${progressPct}%;border-radius:4px;transition:width 0.4s"></div>
+      </div>
+    </div>
+    <div class="pending-header">
+      <div style="flex:1">
+        <div class="pending-title">⏳ ${count} tendencia${count>1?'s':''} sin analizar — siguiente bloque disponible</div>
+        <div class="pending-sub">Estos productos encontraron vídeos virales en Fase 1. Analízalos de 10 en 10 para completar tu lista de ganadores (quedan ${slotsLeft} huecos de ${MAX_CARDS}).</div>
+        <div class="pending-tags" style="margin-top:10px">${previews}${more}</div>
+      </div>
+      <div style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:8px">
+        <button class="pending-btn" id="validate-btn" onclick="validatePending()">
+          🔍 Analizar ${batch} siguientes<br>
+          <span style="font-size:11px;opacity:0.75;font-weight:400">~${batch} créditos Apify · quedan ${count}</span>
+        </button>
+        <span style="font-size:11px;color:#525252">${Math.ceil(count/10)} bloques restantes</span>
+      </div>
     </div>`;
   g('content').appendChild(div);
 }
@@ -321,7 +357,7 @@ function renderPending(signals){
 async function validatePending(){
   if (!_pendingSignals.length) return;
   const btn = document.getElementById('validate-btn');
-  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Lanzando validación...'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Conectando con TikTok...'; }
 
   try {
     const initRes = await fetch(`${API}/validate-signals`, {
@@ -330,7 +366,10 @@ async function validatePending(){
       body: JSON.stringify({ signals: _pendingSignals })
     }).then(r => r.json());
 
-    if (!initRes.job_id) { if(btn) btn.innerHTML = '❌ Error'; return; }
+    if (!initRes.job_id) {
+      if (btn) { btn.disabled = false; btn.innerHTML = '❌ Error al iniciar'; }
+      return;
+    }
 
     const jobId = initRes.job_id;
     let done = false, attempts = 0;
@@ -339,7 +378,7 @@ async function validatePending(){
       await new Promise(r => setTimeout(r, 5000));
       attempts++;
       const poll = await fetch(`${API}/job-status/${jobId}`).then(r => r.json()).catch(() => ({ status:'error' }));
-      if (btn) btn.innerHTML = `⏳ ${poll.progress || 'Validando... ('+attempts*5+'s)'}`;
+      if (btn) btn.innerHTML = `⏳ ${poll.progress || 'Analizando... ('+Math.round(attempts*5/60)+'min)'}`;
 
       if (poll.status === 'done' || poll.status === 'error') {
         done = true;
@@ -348,18 +387,49 @@ async function validatePending(){
         _pendingSignals = res.pending_signals || [];
 
         if (nuevos.length) {
-          // Insertar nuevas tarjetas antes de la sección pendientes
-          const pendingSec = document.getElementById('pending-section');
           const grid = document.querySelector('.grid');
-          nuevos.forEach(p => {
+          const currentCount = document.querySelectorAll('.card').length;
+          const slotsLeft = MAX_CARDS - currentCount;
+          // Solo añadir hasta el máximo de 20
+          const toAdd = nuevos.slice(0, slotsLeft);
+          toAdd.forEach((p, i) => {
+            const rank = currentCount + i + 1;
             const tmp = document.createElement('div');
-            tmp.innerHTML = buildCard(p, (document.querySelectorAll('.card').length + 1));
+            tmp.innerHTML = buildCard(p, rank);
             const card = tmp.firstElementChild;
-            if (card && grid) grid.appendChild(card);
+            if (card && grid) {
+              // Animación de entrada
+              card.style.opacity = '0';
+              card.style.transform = 'translateY(20px)';
+              grid.appendChild(card);
+              setTimeout(() => {
+                card.style.transition = 'opacity 0.4s, transform 0.4s';
+                card.style.opacity = '1';
+                card.style.transform = 'translateY(0)';
+              }, i * 100);
+            }
           });
+
           // Actualizar contador del header
+          const totalCards = document.querySelectorAll('.card').length;
           const rttl = document.querySelector('.rttl');
-          if (rttl) rttl.textContent = `${document.querySelectorAll('.card').length} productos validados`;
+          if (rttl) rttl.textContent = `${totalCards} producto${totalCards>1?'s':''} validado${totalCards>1?'s':''}`;
+
+          // Notificación si encontró nuevos
+          const notif = document.createElement('div');
+          notif.style.cssText = 'position:fixed;top:20px;right:20px;background:#166534;border:1px solid #15803d;color:#bbf7d0;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:600;z-index:999;opacity:0;transition:opacity 0.3s';
+          notif.textContent = `✅ ${toAdd.length} nuevo${toAdd.length>1?'s':''} producto${toAdd.length>1?'s':''} añadido${toAdd.length>1?'s':''}`;
+          document.body.appendChild(notif);
+          setTimeout(() => notif.style.opacity = '1', 50);
+          setTimeout(() => { notif.style.opacity = '0'; setTimeout(() => notif.remove(), 300); }, 3000);
+        } else {
+          // No encontró nada en este bloque
+          const notif = document.createElement('div');
+          notif.style.cssText = 'position:fixed;top:20px;right:20px;background:#1a0a0a;border:1px solid #7f1d1d;color:#fca5a5;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:600;z-index:999;opacity:0;transition:opacity 0.3s';
+          notif.textContent = `⚠️ Este bloque no generó productos validados`;
+          document.body.appendChild(notif);
+          setTimeout(() => notif.style.opacity = '1', 50);
+          setTimeout(() => { notif.style.opacity = '0'; setTimeout(() => notif.remove(), 300); }, 3000);
         }
 
         renderPending(_pendingSignals);
