@@ -15,7 +15,7 @@ app.use(express.json({ limit: '10mb' }));
 const PORT          = process.env.PORT || 3001;
 const APIFY_API_KEY = process.env.APIFY_API_KEY || '';
 const META_ACTOR    = 'jj5sAMeSoXotatkss';
-const MAX_ADS       = 50;
+const MAX_ADS       = 5;
 const RESULTS_FILE  = path.join('/tmp', 'meta_results.json');
 
 // ── Productos TikTok hardcodeados (run definitivo v9.0) ───────────────────────
@@ -54,10 +54,13 @@ function loadResults() {
 async function scrapeMetaAds(keyword) {
   console.log(`[META] Buscando: "${keyword}"`);
 
+  const encodedKeyword = encodeURIComponent(keyword);
+  const adLibraryUrl = `https://www.facebook.com/ads/library/?active_status=all&ad_type=all&country=US&q=${encodedKeyword}&search_type=keyword_unordered`;
+  console.log(`[META] URL: ${adLibraryUrl}`);
+
   const input = {
-    keyword,
-    country:    'US',
-    maxResults: MAX_ADS,
+    adLibraryUrl,
+    numberOfResults: MAX_ADS,
   };
 
   const runRes = await fetch(`https://api.apify.com/v2/acts/${META_ACTOR}/runs`, {
@@ -121,11 +124,14 @@ function calcularMetricas(ads, keyword) {
 
   // Extraer datos normalizados de cada anuncio
   const parsed = ads.map(ad => {
-    // Intentar extraer campos — el actor puede variar su estructura
-    const advertiser  = ad.pageName || ad.advertiserName || ad.page_name || ad.advertiser || '';
-    const adText      = ad.adText   || ad.body           || ad.text      || ad.description || '';
-    const landingRaw  = ad.landingPage || ad.websiteUrl  || ad.url       || ad.link        || '';
-    const startDate   = ad.startDate   || ad.createdAt   || ad.start_date || ad.dateRange?.startDate || '';
+    // Estructura real del actor jj5sAMeSoXotatkss:
+    // metadata.page_name, ad_content.link_url, ad_content.body, timing.start_date (Unix timestamp)
+    const advertiser  = ad.metadata?.page_name || '';
+    const adText      = ad.ad_content?.body || ad.ad_content?.title || '';
+    const landingRaw  = ad.ad_content?.link_url || (ad.ad_content?.cards?.[0]?.link_url) || '';
+    const startDateRaw = ad.timing?.start_date || null;
+    // start_date es Unix timestamp en segundos
+    const startDate   = startDateRaw ? new Date(startDateRaw * 1000).toISOString() : '';
 
     // Dominio limpio
     let domain = '';
