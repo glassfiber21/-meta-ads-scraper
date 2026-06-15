@@ -35,30 +35,30 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 // Seleccionados por producir productos únicos y vendibles, no hauls ni tutoriales
 const QUERIES_CONFIG = [
   // ===== MASCOTAS =====
-  { query: '#petproducts',        videos: 5 },
-  { query: '#petgadgets',         videos: 5 },
-  { query: '#petfinds',           videos: 5 },
-  { query: '#dogmusthaves',       videos: 5 },
-  { query: '#catproducts',        videos: 5 },
+  { query: '#petproducts',        videos: 15 },
+  { query: '#petgadgets',         videos: 15 },
+  { query: '#petfinds',           videos: 15 },
+  { query: '#dogmusthaves',       videos: 15 },
+  { query: '#catproducts',        videos: 15 },
   // ===== COCINA =====
-  { query: '#kitchengadgets',     videos: 5 },
-  { query: '#kitchenfinds',       videos: 5 },
-  { query: '#kitchenessentials',  videos: 5 },
-  { query: '#cookinggadgets',     videos: 5 },
-  { query: '#kitchenorganization',videos: 5 },
+  { query: '#kitchengadgets',     videos: 15 },
+  { query: '#kitchenfinds',       videos: 15 },
+  { query: '#kitchenessentials',  videos: 15 },
+  { query: '#cookinggadgets',     videos: 15 },
+  { query: '#kitchenorganization',videos: 15 },
   // ===== HOGAR / ORGANIZACIÓN =====
-  { query: '#storagehacks',       videos: 5 },
-  { query: '#storageideas',       videos: 5 },
-  { query: '#closetorganization', videos: 5 },
-  { query: '#homeorganization',   videos: 5 },
-  { query: '#organizationhacks',  videos: 5 },
+  { query: '#storagehacks',       videos: 15 },
+  { query: '#storageideas',       videos: 15 },
+  { query: '#closetorganization', videos: 15 },
+  { query: '#homeorganization',   videos: 15 },
+  { query: '#organizationhacks',  videos: 15 },
   // ===== TECH =====
-  { query: '#techgadgets',        videos: 5 },
-  { query: '#deskgadgets',        videos: 5 },
-  { query: '#gadgetreview',       videos: 5 },
+  { query: '#techgadgets',        videos: 15 },
+  { query: '#deskgadgets',        videos: 15 },
+  { query: '#gadgetreview',       videos: 15 },
   // ===== LIMPIEZA =====
-  { query: '#cleaninggadgets',    videos: 5 },
-  { query: '#cleaningproducts',   videos: 5 },
+  { query: '#cleaninggadgets',    videos: 15 },
+  { query: '#cleaningproducts',   videos: 15 },
 ];
 
 const FILTROS = {
@@ -210,28 +210,32 @@ async function identificarProductos(videos, hashtagStats) {
       text: ((v.text || '') + ' ' + (v.hashtags || []).map(h => typeof h === 'string' ? h : h.name || '').join(' ')).slice(0, 300)
     }));
 
-    // Prompt mejorado (cambio 3): descartar hauls + canonical para matching exacto en Fase 2
-    const prompt = `You are analyzing TikTok videos to find single winning dropshipping products.
+    // Prompt v8.3: equilibrio entre precisión y generosidad — no descartar productos válidos
+    const prompt = `You are analyzing TikTok videos to find dropshipping product opportunities.
 
 Videos:
 ${JSON.stringify(adsJson, null, 2)}
 
-RULES — read carefully:
-1. Identify the ONE specific physical product being promoted or demonstrated.
-2. Be VERY specific: "Silicone Sink Mat" not "Kitchen Tool", "Dog Seat Belt" not "Pet Safety".
-3. Set product = "unknown" if ANY of these apply:
-   - HAUL: video shows MORE THAN 3 different products (e.g. "Top 10 Amazon Finds", "Kitchen Gadgets Haul", "Travel Essentials")
-   - TUTORIAL: how-to, recipe, cleaning tips, life hack with no specific product to buy
-   - LIFESTYLE: dancing, vlog, motivation, no product
-   - TOO VAGUE: "home gadget", "cool product", "must have item" without specifying what it is
-4. canonical: lowercase snake_case identifier for the product. Examples:
+RULES:
+1. Identify the MAIN physical product shown or promoted in the video.
+2. Be specific but not overly strict: "Kitchen Organizer" is fine, "Cold Press Juicer" is better.
+3. Set product = "unknown" ONLY if:
+   - Pure HAUL with 5+ different unrelated products (e.g. "Top 10 Amazon Finds", "20 Amazon Products")
+   - Pure LIFESTYLE with zero product (dancing, vlog, motivational speech)
+   - Completely impossible to identify any product
+4. ACCEPT these as valid products:
+   - A category of product if it's the clear focus ("Storage Solution", "Closet Organizer", "Pet Feeder")
+   - A product shown briefly if it's the main subject of the video
+   - Cleaning products, organizers, pet accessories even if brand is unknown
+5. canonical: lowercase snake_case. Examples:
    - "Cold Press Juicer" → "cold_press_juicer"
-   - "Dog Seat Belt" → "dog_seat_belt"
-   - "Portable Dog Water Bottle" → "portable_dog_water_bottle"
+   - "Dog Seat Belt" → "dog_seat_belt"  
+   - "Kitchen Organizer" → "kitchen_organizer"
+   - "Closet Organizer" → "closet_organizer"
+   - "Pet Water Fountain" → "pet_water_fountain"
    - unknown → "unknown"
-   The canonical must capture the FULL product identity, not just one word.
-5. specificityScore: 90=exact named product, 70=clear product type, 50=vague category, 0=haul/unknown
-6. confidence: how sure you are this is ONE buyable product
+6. specificityScore: 90=exact named product, 70=clear specific product, 50=product category, 0=haul/unknown
+7. confidence: 0.8+=certain, 0.6+=pretty sure, 0.4+=possible, 0=unknown
 
 Reply ONLY with a JSON array, no markdown:
 [{"id":"<id>","product":"<name or unknown>","canonical":"<snake_case or unknown>","confidence":<0.0-1.0>,"specificityScore":<0-100>}]`;
@@ -294,7 +298,7 @@ function agrupar(videos, productMap) {
 
   for (const v of videos) {
     const raw = productMap[String(v.id)];
-    if (!raw || raw.product === 'unknown' || raw.confidence < 0.6 || (raw.specificityScore || 0) < 60) continue;
+    if (!raw || raw.product === 'unknown' || raw.confidence < 0.55 || (raw.specificityScore || 0) < 50) continue;
 
     // Usar canonical si está disponible — más preciso que el nombre libre
     const key = raw.canonical && raw.canonical !== 'unknown'
@@ -929,7 +933,7 @@ app.get('/cazador', (req, res) => res.sendFile(path.join(__dirname, 'cazador.htm
 app.use(express.static(__dirname));
 
 app.listen(PORT, () => {
-  console.log(`[SERVER] Cazador v8.3 en puerto ${PORT}`);
+  console.log(`[SERVER] Cazador v8.4 en puerto ${PORT}`);
   console.log(`[FASE1] ${QUERIES_CONFIG.length} hashtags × 5 vídeos = ${QUERIES_CONFIG.length * 5} vídeos`);
   console.log(`[FILTROS] views>=${FILTROS.min_views} | likes>=${FILTROS.min_likes} | fans>=${FILTROS.min_fans} | ADs: filtro propio`);
   console.log(`[FASE2] ${FASE2_VIDEOS_POR_PRODUCTO}v/producto | min ${FASE2_MIN_VIDEOS}v ${FASE2_MIN_CREATORS}c | penaliza >${FASE2_PENALIZE_DAYS}d`);
