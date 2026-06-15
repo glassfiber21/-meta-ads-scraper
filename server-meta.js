@@ -382,6 +382,7 @@ app.post('/validate-all', async (req, res) => {
 
 // ── Frontend embebido ─────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
+  const productosJSON = JSON.stringify(PRODUCTOS_TIKTOK);
   res.send(`<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -514,7 +515,7 @@ app.get('/', (req, res) => {
 </div>
 
 <script>
-const PRODUCTOS = ${JSON.stringify(PRODUCTOS_TIKTOK)};
+const PRODUCTOS = ${productosJSON};
 let selectedIdx = null;
 let polling     = null;
 
