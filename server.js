@@ -385,7 +385,36 @@ function agrupar(videos, productMap) {
     console.log(`  ${label2A} | ${g.product_name}: ${vv}v ${c}c ${ht}ht ${g.total_views.toLocaleString()}V score=${obj.score}`);
 
     if (fase2A_ok) {
-      confirmados2A.push({ ...obj, label: 'Confirmado', fase2a: true });
+      // Guardar en cache para página /producto/:slug (igual que Fase 2B)
+      const slug2a = slugify(g.product_name);
+      productCache[slug2a] = {
+        product_name:  g.product_name,
+        score:         obj.score,
+        video_count:   vv,
+        creator_count: c,
+        total_views:   g.total_views,
+        total_likes:   g.total_likes,
+        oldest_days:   g.oldest_days,
+        newest_days:   g.newest_days,
+        ads_count:     g.ads_count,
+        hashtags:      Array.from(g.hashtags),
+        fase2a:        true,
+        videos: g.videos
+          .sort((a, b) => (b.playCount || 0) - (a.playCount || 0))
+          .map(v => ({
+            id:          v.id,
+            url:         v.webVideoUrl || `https://www.tiktok.com/@${v.authorMeta?.name}/video/${v.id}`,
+            author:      v.authorMeta?.name || '?',
+            author_fans: v.authorMeta?.fans || 0,
+            views:       v.playCount || 0,
+            likes:       v.diggCount || 0,
+            text:        (v.text || '').slice(0, 150),
+            date:        (v.createTimeISO || '').slice(0, 10),
+            cover:       v.videoMeta?.coverUrl || v.covers?.default || '',
+            is_ad:       !!(v.isAd || v.isSponsored),
+          })),
+      };
+      confirmados2A.push({ ...obj, label: 'Confirmado', fase2a: true, producto_url: `/producto/${slug2a}` });
     } else {
       senales.push({ ...obj, label: 'Señal' });
     }
@@ -437,7 +466,7 @@ async function scrapeByName(productName, n) {
     searchQueries: [productName],
     searchSection: '/video',
     videoSearchSorting: 'MOST_RELEVANT',      // v8.3: más preciso, menos ruido semántico
-    videoSearchDateFilter: 'PAST_3_MONTHS',   // cambio 7: captura más virales recientes
+    videoSearchDateFilter: 'LAST_3_MONTHS',   // v8.5: valor correcto según Apify docs
     resultsPerPage: n,
     shouldDownloadVideos: false,
     shouldDownloadCovers: false,
@@ -933,8 +962,8 @@ app.get('/cazador', (req, res) => res.sendFile(path.join(__dirname, 'cazador.htm
 app.use(express.static(__dirname));
 
 app.listen(PORT, () => {
-  console.log(`[SERVER] Cazador v8.4 en puerto ${PORT}`);
-  console.log(`[FASE1] ${QUERIES_CONFIG.length} hashtags × ${QUERIES_CONFIG[0].videos} vídeos = ${QUERIES_CONFIG.reduce((s,q)=>s+q.videos,0)} vídeos`);
+  console.log(`[SERVER] Cazador v8.5 en puerto ${PORT}`);
+  console.log(`[FASE1] ${QUERIES_CONFIG.length} hashtags × 5 vídeos = ${QUERIES_CONFIG.length * 5} vídeos`);
   console.log(`[FILTROS] views>=${FILTROS.min_views} | likes>=${FILTROS.min_likes} | fans>=${FILTROS.min_fans} | ADs: filtro propio`);
   console.log(`[FASE2] ${FASE2_VIDEOS_POR_PRODUCTO}v/producto | min ${FASE2_MIN_VIDEOS}v ${FASE2_MIN_CREATORS}c | penaliza >${FASE2_PENALIZE_DAYS}d`);
   console.log(`[SCORING] 50%creadores 25%videos 15%views 10%likes +5bonus(≥3ADs) -30%(>180d)`);
