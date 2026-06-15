@@ -934,7 +934,7 @@ app.use(express.static(__dirname));
 
 app.listen(PORT, () => {
   console.log(`[SERVER] Cazador v8.4 en puerto ${PORT}`);
-  console.log(`[FASE1] ${QUERIES_CONFIG.length} hashtags × 5 vídeos = ${QUERIES_CONFIG.length * 5} vídeos`);
+  console.log(`[FASE1] ${QUERIES_CONFIG.length} hashtags × ${QUERIES_CONFIG[0].videos} vídeos = ${QUERIES_CONFIG.reduce((s,q)=>s+q.videos,0)} vídeos`);
   console.log(`[FILTROS] views>=${FILTROS.min_views} | likes>=${FILTROS.min_likes} | fans>=${FILTROS.min_fans} | ADs: filtro propio`);
   console.log(`[FASE2] ${FASE2_VIDEOS_POR_PRODUCTO}v/producto | min ${FASE2_MIN_VIDEOS}v ${FASE2_MIN_CREATORS}c | penaliza >${FASE2_PENALIZE_DAYS}d`);
   console.log(`[SCORING] 50%creadores 25%videos 15%views 10%likes +5bonus(≥3ADs) -30%(>180d)`);
