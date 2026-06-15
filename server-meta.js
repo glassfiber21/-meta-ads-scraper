@@ -14,6 +14,7 @@ app.use(express.json({ limit: '10mb' }));
 
 const PORT          = process.env.PORT || 3001;
 const APIFY_API_KEY = process.env.APIFY_API_KEY || '';
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const META_ACTOR    = 'jj5sAMeSoXotatkss';
 const MAX_ADS       = 50;
 const RESULTS_FILE  = path.join('/tmp', 'meta_results.json');
