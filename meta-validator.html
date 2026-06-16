@@ -243,11 +243,22 @@ function renderResults(productos) {
     var p = productos[i];
     var m = p.meta;
     var sfClass = p.score_final >= p.tiktok_score ? 'score-up' : p.score_final < p.tiktok_score * 0.8 ? 'score-down' : 'score-same';
-    var domains = m && m.landing_pages ? m.landing_pages.slice(0,5).join('<br>') : '—';
+    var domains = '—';
+    if (m && m.ads_raw) {
+      var sfDomains = [];
+      var seen = {};
+      m.ads_raw.forEach(function(a) {
+        if (a.match === 'SAME_FAMILY' && a.domain && !seen[a.domain]) {
+          seen[a.domain] = true;
+          sfDomains.push(a.domain);
+        }
+      });
+      if (sfDomains.length) domains = sfDomains.slice(0,5).join('<br>');
+    }
     // Ads detail
     var adsHtml = '';
     if (m && m.ads_raw && m.ads_raw.length) {
-      var matchedOnly = m.ads_raw.filter(function(a) { return a.match; });
+      var matchedOnly = m.ads_raw.filter(function(a) { return a.match === 'SAME_FAMILY' || a.match === 'RELATED_NICHE'; });
       // deduplicate by advertiser
       var seen = {};
       var uniq = [];
@@ -269,7 +280,7 @@ function renderResults(productos) {
         if (a.metaUrl) {
           adsHtml += '<div class="ad-link" style="margin-top:3px">📘 <a href="' + a.metaUrl + '" target="_blank">Ver anuncio en Meta Ads Library</a></div>';
         }
-        adsHtml += '<div class="ad-days">' + (a.days !== null ? a.days + ' días activo' : '') + '</div>';
+
         adsHtml += '</div>';
       }
     }
