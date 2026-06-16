@@ -90,25 +90,44 @@ async function scrapeMetaAds(keyword) {
   return [];
 }
 
-// ── Fase 1: Filtro barato por keywords  ───────────────────────────────────────
-function generarKeywords(productName) {
-  const stopwords = new Set(['with','from','and','the','for','into','built','using']);
-  return productName.toLowerCase().split(/[\s\-]+/).filter(w => w.length > 3 && !stopwords.has(w));
+// ── Familia comercial — 2 niveles ────────────────────────────────────────────
+function generarFamilia(productName) {
+  const familias = {
+    'Kitchen Degreaser Spray':         { l1: ['degreaser','grease remover','kitchen degreaser','oil stain'], l2: ['kitchen cleaner','kitchen spray','oven cleaner'] },
+    'Kitchen Gadget Assortment':       { l1: ['kitchen gadget','kitchen tool','cooking gadget'],             l2: ['kitchen accessory','home gadget','cooking tool'] },
+    'Portable Dog Water Bottle':       { l1: ['dog water bottle','pet water bottle','dog travel water'],     l2: ['dog accessory','pet travel','dog outdoor'] },
+    'Interactive Pet Ball':            { l1: ['pet ball','dog ball','cat ball','interactive pet toy'],        l2: ['pet toy','dog toy','cat toy'] },
+    'Dog Shoes':                       { l1: ['dog shoes','dog boots','dog paw','pet shoes'],                l2: ['dog accessory','pet protection','dog gear'] },
+    'HOVEAir X1 ProMax Drone':         { l1: ['hovear','self-flying drone','pocket drone','hand drone'],     l2: ['drone','flying camera','aerial camera'] },
+    'Phone Stand':                     { l1: ['phone stand','phone holder','phone mount','desk phone'],      l2: ['phone accessory','desk accessory','mobile stand'] },
+    'Pet Cooling Mat':                 { l1: ['cooling mat','pet cooling','dog cooling mat','cool pad'],     l2: ['pet mat','summer pet','dog summer'] },
+    'Professional Juicer Machine':     { l1: ['juicer','cold press juicer','juice extractor','masticating'], l2: ['kitchen appliance','blender','smoothie maker'] },
+    'AutoScooper 12 Lite':             { l1: ['autoscooper','auto litter','self cleaning litter','robot litter'], l2: ['litter box','cat litter','cat hygiene'] },
+    'Portable Fan':                    { l1: ['portable fan','mini fan','personal fan','desk fan'],          l2: ['cooling fan','usb fan','battery fan'] },
+    'Rotating Makeup Organizer':       { l1: ['makeup organizer','rotating organizer','cosmetic organizer'], l2: ['beauty organizer','vanity storage','makeup holder'] },
+    'Keyboard with Built-in Trackpad': { l1: ['keyboard trackpad','wireless keyboard trackpad','keyboard touchpad'], l2: ['wireless keyboard','bluetooth keyboard','compact keyboard'] },
+    'Black Shark Magnetic Cooler':     { l1: ['phone cooler','magnetic cooler','smartphone cooler'],         l2: ['phone cooling','mobile gaming','phone accessory'] },
+  };
+  // Fallback desde nombre
+  const stop = new Set(['with','from','and','the','for','into','built','using','black','white','pro','max','lite']);
+  const words = productName.toLowerCase().split(/[\s\-]+/).filter(w => w.length > 3 && !stop.has(w));
+  return familias[productName] || { l1: words, l2: [] };
 }
 
-function filtroBarato(ad, keywords) {
-  const body    = ad.ad_content?.body || '';
-  const title   = ad.ad_content?.title || '';
-  const landing = ad.ad_content?.link_url || ad.ad_content?.cards?.[0]?.link_url || '';
-  const texto   = [body, title, landing].join(' ').toLowerCase();
-  return keywords.some(kw => texto.includes(kw));
+// ── Fase 1: Filtro barato por familia ────────────────────────────────────────
+function filtroBarato(ad, familia) {
+  const body    = (ad.ad_content?.body    || '').toLowerCase();
+  const title   = (ad.ad_content?.title   || '').toLowerCase();
+  const landing = (ad.ad_content?.link_url || ad.ad_content?.cards?.[0]?.link_url || '').toLowerCase();
+  const texto   = [body, title, landing].join(' ');
+  return [...familia.l1, ...familia.l2].some(kw => texto.includes(kw.toLowerCase()));
 }
 
-// ── Fase 2: Matching con IA (Claude Haiku) ───────────────────────────────────
+// ── Fase 2: Matching IA — SAME_FAMILY / RELATED_NICHE / UNRELATED ─────────
 async function matchConIA(productName, ad) {
   const advertiser = ad.metadata?.page_name || '';
-  const body       = ad.ad_content?.body || '';
-  const title      = ad.ad_content?.title || '';
+  const body       = ad.ad_content?.body    || '';
+  const title      = ad.ad_content?.title   || '';
   const landing    = ad.ad_content?.link_url || ad.ad_content?.cards?.[0]?.link_url || '';
   const textoAd    = [body, title].filter(Boolean).join(' | ').slice(0, 400);
 
@@ -119,29 +138,27 @@ Anuncio:
 - Texto: ${textoAd}
 - Landing page: ${landing}
 
-¿Este anuncio vende realmente el mismo producto o un producto esencialmente equivalente al producto objetivo?
-Responde únicamente: MATCH o NO_MATCH`;
+¿Este anuncio promociona un producto que un comprador potencial de "${productName}" consideraría como una alternativa, sustituto directo o producto muy relacionado?
+
+Responde ÚNICAMENTE con una de estas tres opciones:
+SAME_FAMILY
+RELATED_NICHE
+UNRELATED`;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'Content-Type':      'application/json',
-        'x-api-key':         ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model:      'claude-haiku-4-5-20251001',
-        max_tokens: 10,
-        messages:   [{ role: 'user', content: prompt }],
-      }),
+      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 10, messages: [{ role: 'user', content: prompt }] }),
     });
-    const data = await res.json();
-    const reply = data.content?.[0]?.text?.trim().toUpperCase() || 'NO_MATCH';
-    return reply.includes('MATCH') && !reply.includes('NO_MATCH');
+    const data  = await res.json();
+    const reply = (data.content?.[0]?.text || '').trim().toUpperCase();
+    if (reply.includes('SAME_FAMILY'))   return 'SAME_FAMILY';
+    if (reply.includes('RELATED_NICHE')) return 'RELATED_NICHE';
+    return 'UNRELATED';
   } catch(e) {
     console.error('[MATCH IA ERROR]', e.message);
-    return false;
+    return 'UNRELATED';
   }
 }
 
@@ -177,70 +194,94 @@ async function calcularMetricas(ads, productName) {
     };
   }
 
-  const keywords = generarKeywords(productName);
-  console.log(`[MATCH] Keywords para "${productName}": ${keywords.join(', ')}`);
+  const familia = generarFamilia(productName);
+  console.log(`[MATCH] Familia L1: [${familia.l1.join(', ')}] | L2: [${familia.l2.join(', ')}]`);
 
-  // Deduplicar anunciantes para no llamar a IA N veces por el mismo
-  const advertiserDecision = new Map(); // advertiser → true/false
-  const matchedAdvertisers = new Set();
-  const matchedDomains     = new Set();
-  const matchedDays        = [];
-  let matched_ads = 0;
-  const ads_raw   = [];
+  // Un solo decision por anunciante
+  const advertiserDecision = new Map(); // advertiser → 'SAME_FAMILY' | 'RELATED_NICHE' | 'UNRELATED'
+
+  // Contadores por nivel
+  const sfAdvertisers = new Set();  // SAME_FAMILY
+  const rnAdvertisers = new Set();  // RELATED_NICHE
+  const sfDomains     = new Set();
+  const rnDomains     = new Set();
+  let sf_ads = 0;
+  let rn_ads = 0;
+  const ads_raw = [];
 
   for (const ad of ads) {
-    const p          = parsearAnuncio(ad);
-    const pasaFase1  = filtroBarato(ad, keywords);
+    const p         = parsearAnuncio(ad);
+    const isActive  = ad.status?.is_active === true;
+    const pasaFase1 = filtroBarato(ad, familia);
 
     if (!pasaFase1) {
-      ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, days: p.days, metaUrl: p.metaUrl, match: false, fase: 'NO_MATCH_KEYWORDS' });
+      ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, metaUrl: p.metaUrl, is_active: isActive, match: 'UNRELATED', fase: 'NO_MATCH_FILTER' });
       continue;
     }
 
-    // Fase 2: IA — solo una llamada por anunciante único
-    let esMatch;
+    // IA: una sola llamada por anunciante único
+    let nivel;
     if (advertiserDecision.has(p.advertiser)) {
-      esMatch = advertiserDecision.get(p.advertiser);
+      nivel = advertiserDecision.get(p.advertiser);
     } else {
-      esMatch = await matchConIA(productName, ad);
-      advertiserDecision.set(p.advertiser, esMatch);
-      console.log(`[MATCH IA] "${p.advertiser}" → ${esMatch ? 'MATCH ✅' : 'NO_MATCH ❌'}`);
+      nivel = await matchConIA(productName, ad);
+      advertiserDecision.set(p.advertiser, nivel);
+      console.log(`[MATCH IA] "${p.advertiser}" → ${nivel} (activo: ${isActive})`);
     }
 
-    if (esMatch) {
-      matched_ads++;
-      matchedAdvertisers.add(p.advertiser);
-      if (p.domain) matchedDomains.add(p.domain);
-      if (p.days !== null) matchedDays.push(p.days);
+    if (nivel === 'SAME_FAMILY') {
+      sf_ads++;
+      sfAdvertisers.add(p.advertiser);
+      if (p.domain) sfDomains.add(p.domain);
+    } else if (nivel === 'RELATED_NICHE') {
+      rn_ads++;
+      rnAdvertisers.add(p.advertiser);
+      if (p.domain) rnDomains.add(p.domain);
     }
 
-    ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, days: p.days, metaUrl: p.metaUrl, match: esMatch, fase: esMatch ? 'MATCH' : 'NO_MATCH_IA' });
+    ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, metaUrl: p.metaUrl, is_active: isActive, match: nivel, fase: nivel });
   }
 
-  const advertisers_total  = [...new Set(ads.map(a => a.metadata?.page_name || '').filter(Boolean))].length;
-  const advertisers_matched = matchedAdvertisers.size;
-  const valid_domains       = matchedDomains.size;
-  const oldest_match_days   = matchedDays.length ? Math.max(...matchedDays) : null;
-  const avg_match_age_days  = matchedDays.length ? Math.round(matchedDays.reduce((a,b)=>a+b,0)/matchedDays.length) : null;
-  const match_rate          = Math.round((matched_ads / ads.length) * 100);
+  // Anunciantes activos por nivel
+  const activeAds     = ads_raw.filter(a => a.is_active);
+  const activeSF      = activeAds.filter(a => a.match === 'SAME_FAMILY');
+  const activeRN      = activeAds.filter(a => a.match === 'RELATED_NICHE');
+  const activeSFAdvs  = new Set(activeSF.map(a => a.advertiser));
+  const activeRNAdvs  = new Set(activeRN.map(a => a.advertiser));
 
-  // Score: peso principal en anunciantes únicos válidos
-  const raw_score = (advertisers_matched * 15) + (matched_ads * 0.5) + ((avg_match_age_days || 0) * 0.3);
+  const advertisers_total    = [...new Set(ads.map(a => a.metadata?.page_name || '').filter(Boolean))].length;
+  const advertisers_matched  = sfAdvertisers.size + rnAdvertisers.size;
+  const valid_domains        = sfDomains.size;
+  const match_rate           = Math.round(((sf_ads + rn_ads) / ads.length) * 100);
 
-  console.log(`[MATCH] "${productName}" → ${matched_ads} matched / ${advertisers_matched} anunciantes / score_raw=${raw_score}`);
+  // Score con pesos diferenciados
+  // SAME_FAMILY activos pesan mucho más
+  const raw_score =
+    (activeSFAdvs.size  * 20) +   // anunciantes activos SAME_FAMILY
+    (sfAdvertisers.size * 10) +   // anunciantes totales SAME_FAMILY
+    (sf_ads             *  1) +   // ads SAME_FAMILY
+    (activeRNAdvs.size  *  5) +   // anunciantes activos RELATED_NICHE
+    (rnAdvertisers.size *  3) +   // anunciantes totales RELATED_NICHE
+    (rn_ads             * 0.3);   // ads RELATED_NICHE
+
+  console.log(`[MATCH] "${productName}" → SF: ${sfAdvertisers.size}adv/${sf_ads}ads | RN: ${rnAdvertisers.size}adv/${rn_ads}ads | active_SF_adv: ${activeSFAdvs.size} | score_raw=${raw_score}`);
 
   return {
-    total_ads_found: ads.length,
-    matched_ads,
+    total_ads_found:    ads.length,
+    matched_ads:        sf_ads + rn_ads,
+    same_family_ads:    sf_ads,
+    related_niche_ads:  rn_ads,
     match_rate,
     advertisers_total,
     advertisers_matched,
-    valid_advertisers:  advertisers_matched,
+    same_family_advertisers:    sfAdvertisers.size,
+    related_niche_advertisers:  rnAdvertisers.size,
+    active_same_family_adv:     activeSFAdvs.size,
+    active_related_niche_adv:   activeRNAdvs.size,
+    valid_advertisers:  sfAdvertisers.size,
     valid_domains,
-    oldest_match_days,
-    avg_match_age_days,
-    domains_matched:  [...matchedDomains],
-    landing_pages:    [...matchedDomains],
+    domains_matched:    [...sfDomains, ...rnDomains],
+    landing_pages:      [...sfDomains],
     advertisers:      [...matchedAdvertisers],
     meta_score_raw:   raw_score,
     meta_score:       0,
