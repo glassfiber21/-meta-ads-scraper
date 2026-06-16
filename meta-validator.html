@@ -397,14 +397,14 @@ function loadKeywordSuggestions(product) {
       var isSelected = i === 0 ? 'selected' : '';
       var label = i === 0 ? '✨ Sugerida' : ('Alt ' + i);
       html += '<div class="keyword-suggestion">';
-      html += '<span class="keyword-tag ' + isSelected + '" onclick="selectKeyword(this, '' + kw + '')">' + kw + '</span>';
+      html += '<span class="keyword-tag ' + isSelected + '" onclick="selectKeyword(this, &quot;' + kw + '&quot;)">' + kw + '</span>';
       html += '<span style="font-size:11px;color:var(--muted)">' + label + '</span>';
       html += '</div>';
     });
     // Add original option
     var origKw = d.original_product.toLowerCase();
     html += '<div class="keyword-suggestion">';
-    html += '<span class="keyword-tag" onclick="selectKeyword(this, '' + origKw + '')">' + origKw + '</span>';
+    html += '<span class="keyword-tag" onclick="selectKeyword(this, &quot;' + origKw + '&quot;)">' + origKw + '</span>';
     html += '<span style="font-size:11px;color:var(--muted)">Original TikTok</span>';
     html += '</div>';
 
@@ -425,7 +425,7 @@ function showNoResults(product, alternatives) {
   var html = '';
   alternatives.forEach(function(kw) {
     html += '<div class="keyword-suggestion">';
-    html += '<span class="keyword-tag" onclick="retryWithKeyword('' + product + '', '' + kw + '')">' + kw + ' →</span>';
+    html += '<div class="keyword-suggestion"><span class="keyword-tag" onclick="retryWithKeyword(&quot;' + product + '&quot;, &quot;' + kw + '&quot;)">' + kw + ' →</span></div>';
     html += '</div>';
   });
   document.getElementById('noResultsSuggestions').innerHTML = html;
