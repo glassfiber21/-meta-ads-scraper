@@ -282,7 +282,7 @@ async function calcularMetricas(ads, productName) {
     valid_domains,
     domains_matched:    [...sfDomains, ...rnDomains],
     landing_pages:      [...sfDomains],
-    advertisers:      [...matchedAdvertisers],
+    advertisers:      [...sfAdvertisers, ...rnAdvertisers],
     meta_score_raw:   raw_score,
     meta_score:       0,
     ads_raw,
