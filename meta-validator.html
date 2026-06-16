@@ -96,10 +96,10 @@
         <tr>
           <th>#</th><th>Producto</th>
           <th class="tag-tiktok">TikTok</th>
-          <th class="tag-meta">SF adv</th>
+          <th class="tag-meta">SF adv (histórico)</th>
           <th class="tag-meta">RN adv</th>
-          <th class="tag-meta">SF ads / RN ads</th>
-          <th class="tag-meta">Activos SF</th>
+          <th class="tag-meta">SF / RN ads</th>
+          <th class="tag-meta">Estado actor</th>
           <th class="tag-meta">Meta score</th>
           <th>Score final</th>
           <th>Landing pages</th>
@@ -275,8 +275,7 @@ function renderResults(productos) {
         adsHtml += '<div class="ad-text">' + (a.ad_text ? a.ad_text.slice(0,150) + '...' : '—') + '</div>';
         adsHtml += '<div class="ad-link">🛒 Landing: <a href="' + (a.landing || '#') + '" target="_blank">' + (a.domain || a.landing || '—') + '</a></div>';
         var matchLabel = a.match === 'SAME_FAMILY' ? '🎯 SAME FAMILY' : a.match === 'RELATED_NICHE' ? '🔗 RELATED NICHE' : '❌ UNRELATED';
-        var activeLabel = a.is_active ? '🟢 Activo' : '🔴 Inactivo';
-        adsHtml += '<div style="margin-top:4px;font-size:11px">' + matchLabel + ' · ' + activeLabel + '</div>';
+        adsHtml += '<div style="margin-top:4px;font-size:11px">' + matchLabel + '</div>';
         if (a.metaUrl) {
           adsHtml += '<div class="ad-link" style="margin-top:3px">📘 <a href="' + a.metaUrl + '" target="_blank">Ver anuncio en Meta Ads Library</a></div>';
         }
@@ -297,7 +296,7 @@ function renderResults(productos) {
     html += '<td><span class="badge badge-blue">' + sfAdv + '</span></td>';
     html += '<td><span class="badge badge-orange">' + rnAdv + '</span></td>';
     html += '<td>' + sfAds + ' / ' + rnAds + '</td>';
-    html += '<td>' + (activeSF > 0 ? '<span class="badge badge-green">' + activeSF + ' activos</span>' : '<span style="color:var(--muted)">0</span>') + '</td>';
+    html += '<td><span style="color:var(--muted);font-size:11px">⚠ no verificado</span></td>';
     html += '<td>' + metaScore + '</td>';
     html += '<td><span class="score-final ' + sfClass + '">' + (p.score_final !== undefined ? p.score_final : '—') + '</span></td>';
     html += '<td>';

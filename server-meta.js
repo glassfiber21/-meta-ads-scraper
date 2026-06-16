@@ -254,14 +254,18 @@ async function calcularMetricas(ads, productName) {
   const valid_domains        = sfDomains.size;
   const match_rate           = Math.round(((sf_ads + rn_ads) / ads.length) * 100);
 
-  // Score con pesos diferenciados
-  // SAME_FAMILY activos pesan mucho más
+  // Métricas históricas vs activas (is_active del actor NO es fiable — se guarda pero no se usa en score)
+  const historical_advertisers = sfAdvertisers.size;   // todos los SF detectados
+  const active_advertisers_reported = activeSFAdvs.size; // según actor (no fiable)
+  const active_ratio = historical_advertisers > 0
+    ? Math.round((active_advertisers_reported / historical_advertisers) * 100)
+    : 0;
+
+  // Score: basado solo en señal histórica — is_active ignorado hasta validar fiabilidad
   const raw_score =
-    (activeSFAdvs.size  * 20) +   // anunciantes activos SAME_FAMILY
-    (sfAdvertisers.size * 10) +   // anunciantes totales SAME_FAMILY
+    (sfAdvertisers.size * 15) +   // anunciantes SAME_FAMILY (histórico)
     (sf_ads             *  1) +   // ads SAME_FAMILY
-    (activeRNAdvs.size  *  5) +   // anunciantes activos RELATED_NICHE
-    (rnAdvertisers.size *  3) +   // anunciantes totales RELATED_NICHE
+    (rnAdvertisers.size *  5) +   // anunciantes RELATED_NICHE
     (rn_ads             * 0.3);   // ads RELATED_NICHE
 
   console.log(`[MATCH] "${productName}" → SF: ${sfAdvertisers.size}adv/${sf_ads}ads | RN: ${rnAdvertisers.size}adv/${rn_ads}ads | active_SF_adv: ${activeSFAdvs.size} | score_raw=${raw_score}`);
@@ -276,8 +280,9 @@ async function calcularMetricas(ads, productName) {
     advertisers_matched,
     same_family_advertisers:    sfAdvertisers.size,
     related_niche_advertisers:  rnAdvertisers.size,
-    active_same_family_adv:     activeSFAdvs.size,
-    active_related_niche_adv:   activeRNAdvs.size,
+    historical_advertisers,
+    active_advertisers_reported,
+    active_ratio,
     valid_advertisers:  sfAdvertisers.size,
     valid_domains,
     domains_matched:    [...sfDomains, ...rnDomains],
