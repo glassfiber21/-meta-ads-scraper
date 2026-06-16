@@ -193,7 +193,7 @@ async function calcularMetricas(ads, productName) {
     const pasaFase1  = filtroBarato(ad, keywords);
 
     if (!pasaFase1) {
-      ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, days: p.days, match: false, fase: 'NO_MATCH_KEYWORDS' });
+      ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, days: p.days, metaUrl: p.metaUrl, match: false, fase: 'NO_MATCH_KEYWORDS' });
       continue;
     }
 
@@ -214,7 +214,7 @@ async function calcularMetricas(ads, productName) {
       if (p.days !== null) matchedDays.push(p.days);
     }
 
-    ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, days: p.days, match: esMatch, fase: esMatch ? 'MATCH' : 'NO_MATCH_IA' });
+    ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, days: p.days, metaUrl: p.metaUrl, match: esMatch, fase: esMatch ? 'MATCH' : 'NO_MATCH_IA' });
   }
 
   const advertisers_total  = [...new Set(ads.map(a => a.metadata?.page_name || '').filter(Boolean))].length;
