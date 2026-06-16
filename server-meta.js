@@ -239,7 +239,8 @@ function parsearAnuncio(ad) {
   } catch(_) { domain = landingRaw; }
 
   const days = startRaw ? Math.floor((now - startRaw * 1000) / 86400000) : null;
-  return { advertiser, adText, domain, landingRaw, days, archiveId, metaUrl };
+  const start_date_iso = startRaw ? new Date(startRaw * 1000).toISOString().split('T')[0] : null;
+  return { advertiser, adText, domain, landingRaw, days, start_date_iso, archiveId, metaUrl };
 }
 
 // ── Calcular métricas con Product Match Engine ────────────────────────────────
@@ -276,7 +277,7 @@ async function calcularMetricas(ads, productName) {
     const pasaFase1 = filtroBarato(ad, familia);
 
     if (!pasaFase1) {
-      ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, metaUrl: p.metaUrl, is_active: isActive, match: 'UNRELATED', fase: 'NO_MATCH_FILTER' });
+      ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, metaUrl: p.metaUrl, is_active: isActive, days: p.days, start_date: p.start_date_iso, match: 'UNRELATED', fase: 'NO_MATCH_FILTER' });
       continue;
     }
 
@@ -300,7 +301,7 @@ async function calcularMetricas(ads, productName) {
       if (p.domain) rnDomains.add(p.domain);
     }
 
-    ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, metaUrl: p.metaUrl, is_active: isActive, match: nivel, fase: nivel });
+    ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, metaUrl: p.metaUrl, is_active: isActive, days: p.days, start_date: p.start_date_iso, match: nivel, fase: nivel });
   }
 
   // Anunciantes activos por nivel
@@ -329,7 +330,22 @@ async function calcularMetricas(ads, productName) {
     (rnAdvertisers.size *  5) +   // anunciantes RELATED_NICHE
     (rn_ads             * 0.3);   // ads RELATED_NICHE
 
-  console.log(`[MATCH] "${productName}" → SF: ${sfAdvertisers.size}adv/${sf_ads}ads | RN: ${rnAdvertisers.size}adv/${rn_ads}ads | active_SF_adv: ${activeSFAdvs.size} | score_raw=${raw_score}`);
+  // Veteranía — anunciante SF más veterano
+  const sfAdsRaw = ads_raw.filter(a => a.match === 'SAME_FAMILY' && a.days !== null && a.days !== undefined);
+  const maxDays  = sfAdsRaw.length ? Math.max(...sfAdsRaw.map(a => a.days)) : null;
+  const veteran90  = sfAdsRaw.filter(a => a.days >= 90).length;
+  const veteran180 = sfAdsRaw.filter(a => a.days >= 180).length;
+
+  // Anunciante más veterano
+  const veteranAdv = {};
+  sfAdsRaw.forEach(a => {
+    if (!veteranAdv[a.advertiser] || a.days > veteranAdv[a.advertiser].days) {
+      veteranAdv[a.advertiser] = { days: a.days, start_date: a.start_date };
+    }
+  });
+  const topVeteran = Object.entries(veteranAdv).sort((x,y) => y[1].days - x[1].days)[0];
+
+  console.log(`[MATCH] "${productName}" → SF: ${sfAdvertisers.size}adv/${sf_ads}ads | RN: ${rnAdvertisers.size}adv/${rn_ads}ads | active_SF_adv: ${activeSFAdvs.size} | max_days: ${maxDays} | score_raw=${raw_score}`);
 
   return {
     total_ads_found:    ads.length,
@@ -351,6 +367,11 @@ async function calcularMetricas(ads, productName) {
     advertisers:      [...sfAdvertisers, ...rnAdvertisers],
     meta_score_raw:   raw_score,
     meta_score:       0,
+    // P4 — Veteranía
+    max_days_active:  maxDays,
+    ads_veteran_90:   veteran90,
+    ads_veteran_180:  veteran180,
+    top_veteran:      topVeteran ? { advertiser: topVeteran[0], days: topVeteran[1].days, start_date: topVeteran[1].start_date } : null,
     ads_raw,
   };
 }
