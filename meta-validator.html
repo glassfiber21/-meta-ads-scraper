@@ -51,6 +51,18 @@
   .tag-tiktok { color: #fe2c55; font-weight: 600; }
   .tag-meta   { color: var(--accent); font-weight: 600; }
   .error-box  { background: #1a0a0a; border: 1px solid #4a1a1a; border-radius: 8px; padding: 12px 16px; color: var(--red); font-size: 13px; margin-top: 12px; }
+  .keyword-panel { background: #0d1a0d; border: 1px solid #1a3a1a; border-radius: 10px; padding: 16px; margin-top: 14px; display: none; }
+  .keyword-panel h3 { font-size: 12px; color: #4ade80; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 12px; }
+  .keyword-original { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .keyword-suggestion { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .keyword-tag { background: #1a2a1a; border: 1px solid #2a4a2a; border-radius: 6px; padding: 5px 12px; font-size: 13px; font-weight: 500; color: #4ade80; cursor: pointer; transition: background .15s; }
+  .keyword-tag:hover { background: #2a4a2a; }
+  .keyword-tag.selected { background: #14532d; border-color: #22c55e; }
+  .keyword-reasoning { font-size: 11px; color: var(--muted); font-style: italic; margin-top: 6px; }
+  .retry-btn { background: #14532d; color: #4ade80; border: 1px solid #22c55e; border-radius: 8px; padding: 8px 18px; font-size: 12px; font-weight: 600; cursor: pointer; margin-top: 10px; }
+  .retry-btn:hover { background: #166534; }
+  .no-results-box { background: #1a0a00; border: 1px solid #3a1a00; border-radius: 10px; padding: 16px; margin-top: 14px; display: none; }
+  .no-results-box h3 { font-size: 12px; color: var(--orange); text-transform: uppercase; margin-bottom: 8px; }
   .ads-toggle { cursor: pointer; font-size: 11px; color: var(--accent); text-decoration: underline; margin-top: 4px; display: inline-block; }
   .ads-detail { display: none; margin-top: 10px; }
   .ads-detail.open { display: block; }
@@ -87,6 +99,22 @@
     </div>
     <div class="status-msg" id="statusMsg"></div>
     <div class="error-box" id="errorBox" style="display:none"></div>
+
+    <!-- Keyword Intelligence Panel -->
+    <div class="keyword-panel" id="keywordPanel">
+      <h3>🧠 Keyword Intelligence</h3>
+      <div class="keyword-original" id="kwOriginal"></div>
+      <div id="kwSuggestions"></div>
+      <div class="keyword-reasoning" id="kwReasoning"></div>
+    </div>
+
+    <!-- No Results Panel -->
+    <div class="no-results-box" id="noResultsBox">
+      <h3>⚠ Meta no ha encontrado validación</h3>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Claude propone keywords alternativas:</p>
+      <div id="noResultsSuggestions"></div>
+      <p style="font-size:11px;color:var(--muted);margin-top:8px">Coste estimado por búsqueda: <strong style="color:var(--orange)">$0.75</strong></p>
+    </div>
   </div>
 
   <div class="panel" id="resultsPanel" style="display:none">
@@ -134,7 +162,11 @@ function selectChip(i) {
   for (var j = 0; j < chips.length; j++) chips[j].classList.remove('selected');
   document.getElementById('chip-' + i).classList.add('selected');
   selectedIdx = i;
+  selectedKeyword = null;
+  currentKeywordInfo = null;
   document.getElementById('btnOne').disabled = false;
+  document.getElementById('noResultsBox').style.display = 'none';
+  loadKeywordSuggestions(PRODUCTOS[i].product);
 }
 
 function pollJob(jobId, totalItems, callback) {
@@ -201,7 +233,14 @@ function validarSeleccionado() {
   fetch('/validate-one', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ product: p.product, tiktok_score: p.tiktok_score, creators: p.creators, videos: p.videos })
+    body: JSON.stringify({
+      product: p.product,
+      tiktok_score: p.tiktok_score,
+      creators: p.creators,
+      videos: p.videos,
+      meta_keyword: selectedKeyword || p.product,
+      keyword_info: currentKeywordInfo
+    })
   })
     .then(function(r) { return r.json(); })
     .then(function(d) {
@@ -209,7 +248,11 @@ function validarSeleccionado() {
       pollJob(d.job_id, 1, function(err, result) {
         setLoading(false);
         if (err) return showError(err);
-        renderResults([result.producto]);
+        var producto = result.producto;
+        if (producto.meta && producto.meta.same_family_advertisers === 0 && currentKeywordInfo && currentKeywordInfo.alternatives.length) {
+          showNoResults(p.product, currentKeywordInfo.alternatives);
+        }
+        renderResults([producto]);
       });
     })
     .catch(function(e) { showError(e.message); });
@@ -291,7 +334,9 @@ function renderResults(productos) {
     var metaScore  = m ? scoreBadge(m.meta_score || 0) : '—';
     html += '<tr>';
     html += '<td style="color:var(--muted)">' + (i+1) + '</td>';
-    html += '<td><strong>' + p.product + '</strong><div style="font-size:11px;color:var(--muted);margin-top:3px">' + (p.creators||0) + 'c &middot; ' + (p.videos||0) + 'v</div></td>';
+    var kwUsed = p.meta_keyword_used && p.meta_keyword_used.toLowerCase() !== p.product.toLowerCase()
+      ? '<div style="font-size:10px;color:#4ade80;margin-top:2px">🔑 ' + p.meta_keyword_used + '</div>' : '';
+    html += '<td><strong>' + p.product + '</strong><div style="font-size:11px;color:var(--muted);margin-top:3px">' + (p.creators||0) + 'c &middot; ' + (p.videos||0) + 'v</div>' + kwUsed + '</td>';
     html += '<td>' + scoreBadge(p.tiktok_score) + '</td>';
     html += '<td><span class="badge badge-blue">' + sfAdv + '</span></td>';
     html += '<td><span class="badge badge-orange">' + rnAdv + '</span></td>';
@@ -322,6 +367,104 @@ function toggleAds(el) {
     detail.classList.add('open');
     el.textContent = 'ocultar anuncios ▴';
   }
+}
+
+// ── Keyword Intelligence ─────────────────────────────────────────────────────
+var currentKeywordInfo = null;
+var selectedKeyword    = null;
+
+function loadKeywordSuggestions(product) {
+  document.getElementById('keywordPanel').style.display = 'none';
+  document.getElementById('noResultsBox').style.display = 'none';
+  fetch('/suggest-keyword', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ product: product })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (!d.success) return;
+    currentKeywordInfo = d;
+    selectedKeyword    = d.meta_keyword;
+
+    var panel = document.getElementById('keywordPanel');
+    document.getElementById('kwOriginal').textContent = 'Keyword original: ' + d.original_product.toLowerCase();
+    document.getElementById('kwReasoning').textContent = d.reasoning;
+
+    var allKw = [d.meta_keyword].concat(d.alternatives || []);
+    var html  = '';
+    allKw.forEach(function(kw, i) {
+      var isSelected = i === 0 ? 'selected' : '';
+      var label = i === 0 ? '✨ Sugerida' : ('Alt ' + i);
+      html += '<div class="keyword-suggestion">';
+      html += '<span class="keyword-tag ' + isSelected + '" onclick="selectKeyword(this, '' + kw + '')">' + kw + '</span>';
+      html += '<span style="font-size:11px;color:var(--muted)">' + label + '</span>';
+      html += '</div>';
+    });
+    // Add original option
+    var origKw = d.original_product.toLowerCase();
+    html += '<div class="keyword-suggestion">';
+    html += '<span class="keyword-tag" onclick="selectKeyword(this, '' + origKw + '')">' + origKw + '</span>';
+    html += '<span style="font-size:11px;color:var(--muted)">Original TikTok</span>';
+    html += '</div>';
+
+    document.getElementById('kwSuggestions').innerHTML = html;
+    panel.style.display = 'block';
+  })
+  .catch(function() {});
+}
+
+function selectKeyword(el, kw) {
+  document.querySelectorAll('.keyword-tag').forEach(function(t) { t.classList.remove('selected'); });
+  el.classList.add('selected');
+  selectedKeyword = kw;
+}
+
+function showNoResults(product, alternatives) {
+  var box  = document.getElementById('noResultsBox');
+  var html = '';
+  alternatives.forEach(function(kw) {
+    html += '<div class="keyword-suggestion">';
+    html += '<span class="keyword-tag" onclick="retryWithKeyword('' + product + '', '' + kw + '')">' + kw + ' →</span>';
+    html += '</div>';
+  });
+  document.getElementById('noResultsSuggestions').innerHTML = html;
+  box.style.display = 'block';
+}
+
+function retryWithKeyword(product, kw) {
+  var p = PRODUCTOS.find(function(x) { return x.product === product; });
+  if (!p) return;
+  selectedKeyword = kw;
+  document.getElementById('noResultsBox').style.display = 'none';
+  document.getElementById('statusMsg').textContent = 'Reintentando con keyword "' + kw + '"...';
+  setLoading(true);
+  fetch('/validate-one', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      product: p.product,
+      tiktok_score: p.tiktok_score,
+      creators: p.creators,
+      videos: p.videos,
+      meta_keyword: kw,
+      keyword_info: currentKeywordInfo
+    })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (!d.job_id) throw new Error(d.error || 'Sin job_id');
+    pollJob(d.job_id, 1, function(err, result) {
+      setLoading(false);
+      if (err) return showError(err);
+      var producto = result.producto;
+      if (producto.meta && producto.meta.same_family_advertisers === 0) {
+        showNoResults(product, currentKeywordInfo ? currentKeywordInfo.alternatives : []);
+      }
+      renderResults([producto]);
+    });
+  })
+  .catch(function(e) { showError(e.message); });
 }
 
 // Cargar productos al iniciar

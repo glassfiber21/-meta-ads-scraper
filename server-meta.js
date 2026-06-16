@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// META ADS VALIDATOR v1.0 — Servidor independiente
-// Recibe productos ya detectados por TikTok y los valida contra Meta Ads Library
+// META ADS VALIDATOR v2.0 — Keyword Intelligence
+// Recibe productos TikTok → genera keyword optimizada por Claude → valida en Meta
 // Actor Apify: jj5sAMeSoXotatkss
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -91,6 +91,63 @@ async function scrapeMetaAds(keyword) {
   
   console.log(`[META] No hay dataset para "${keyword}" — devolviendo vacío`);
   return [];
+}
+
+// ── Generador de keyword Meta optimizada por Claude ──────────────────────────
+async function generarKeywordMeta(productName) {
+  const prompt = `Eres un experto en dropshipping y Meta Ads.
+Tu tarea: dado el nombre de un producto detectado en TikTok, genera la keyword más efectiva para buscar anunciantes en Meta Ads Library.
+
+Reglas:
+1. La keyword debe ser semánticamente cercana al producto original
+2. Usa términos que los anunciantes reales usan en sus campañas
+3. NO uses términos demasiado genéricos (ej: "dog accessories" para "Dog Shoes" es incorrecto)
+4. Máximo 4 palabras
+
+Producto TikTok: "${productName}"
+
+Responde ÚNICAMENTE con un JSON así (sin markdown):
+{
+  "meta_keyword": "la keyword optimizada",
+  "alternatives": ["alternativa 1", "alternativa 2", "alternativa 3"],
+  "reasoning": "por qué elegiste esta keyword en una frase"
+}`;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 200,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    const data  = await res.json();
+    const text  = (data.content?.[0]?.text || '').trim();
+    const clean = text.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(clean);
+    console.log(`[KEYWORD] "${productName}" → "${parsed.meta_keyword}" (${parsed.reasoning})`);
+    return {
+      original_product: productName,
+      meta_keyword:     parsed.meta_keyword,
+      alternatives:     parsed.alternatives || [],
+      reasoning:        parsed.reasoning || '',
+    };
+  } catch(e) {
+    console.error('[KEYWORD ERROR]', e.message);
+    // Fallback: usar el nombre original
+    return {
+      original_product: productName,
+      meta_keyword:     productName.toLowerCase(),
+      alternatives:     [],
+      reasoning:        'fallback al nombre original',
+    };
+  }
 }
 
 // ── Familia comercial — 2 niveles ────────────────────────────────────────────
@@ -342,16 +399,17 @@ app.get('/job-status/:id', (req, res) => {
 
 // ── Validar UN solo producto (para testing barato) ────────────────────────────
 app.post('/validate-one', async (req, res) => {
-  const { product, tiktok_score, creators, videos } = req.body || {};
+  const { product, tiktok_score, creators, videos, meta_keyword, keyword_info } = req.body || {};
   if (!product) return res.status(400).json({ error: 'Falta el campo "product"' });
+  const effectiveKeyword = meta_keyword || product;
 
   const jobId = createJob();
   res.json({ success: true, job_id: jobId });
 
   (async () => {
     try {
-      updateJob(jobId, { progress: `Validando "${product}" en Meta Ads...` });
-      const ads     = await scrapeMetaAds(product);
+      updateJob(jobId, { progress: `Validando "${product}" con keyword "${effectiveKeyword}"...` });
+      const ads     = await scrapeMetaAds(effectiveKeyword);
       const metricas = await calcularMetricas(ads, product);
 
       const resultado = {
@@ -359,6 +417,10 @@ app.post('/validate-one', async (req, res) => {
         tiktok_score: tiktok_score || 0,
         creators: creators || 0,
         videos: videos || 0,
+        meta_keyword_used: effectiveKeyword,
+        meta_keyword_original: product !== effectiveKeyword ? product.toLowerCase() : null,
+        keyword_alternatives: keyword_info?.alternatives || [],
+        keyword_reasoning: keyword_info?.reasoning || '',
         meta: metricas,
         score_final: Math.round(((tiktok_score / 100) * 60 + (metricas.meta_score_raw / 100) * 40) * 100) / 100,
         validated_at: new Date().toISOString(),
@@ -433,6 +495,19 @@ app.post('/validate-all', async (req, res) => {
 });
 
 // ── Frontend embebido ─────────────────────────────────────────────────────────
+
+// ── Sugerir keyword Meta para un producto ────────────────────────────────────
+app.post('/suggest-keyword', async (req, res) => {
+  const { product } = req.body || {};
+  if (!product) return res.status(400).json({ error: 'Falta el campo "product"' });
+  try {
+    const result = await generarKeywordMeta(product);
+    res.json({ success: true, ...result });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── API: lista de productos para el frontend ─────────────────────────────────
 app.get('/api/productos', (req, res) => {
   res.json(PRODUCTOS_TIKTOK);
