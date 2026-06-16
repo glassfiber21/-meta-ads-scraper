@@ -410,7 +410,7 @@ app.post('/validate-one', async (req, res) => {
   (async () => {
     try {
       updateJob(jobId, { progress: `Validando "${product}" con keyword "${effectiveKeyword}"...` });
-      const ads     = await scrapeMetaAds(effectiveKeyword);
+      const ads     = await scrapeMetaAds(product); // dataset local siempre por nombre de producto
       const metricas = await calcularMetricas(ads, product);
 
       const resultado = {
