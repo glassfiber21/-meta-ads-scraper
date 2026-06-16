@@ -152,6 +152,8 @@ function parsearAnuncio(ad) {
   const adText     = ad.ad_content?.body || ad.ad_content?.title || '';
   const landingRaw = ad.ad_content?.link_url || ad.ad_content?.cards?.[0]?.link_url || '';
   const startRaw   = ad.timing?.start_date || null;
+  const archiveId  = ad.metadata?.ad_archive_id || ad.additional_info?.raw_data?.ad_archive_id || null;
+  const metaUrl    = archiveId ? `https://www.facebook.com/ads/library/?id=${archiveId}` : null;
 
   let domain = '';
   try {
@@ -159,7 +161,7 @@ function parsearAnuncio(ad) {
   } catch(_) { domain = landingRaw; }
 
   const days = startRaw ? Math.floor((now - startRaw * 1000) / 86400000) : null;
-  return { advertiser, adText, domain, landingRaw, days };
+  return { advertiser, adText, domain, landingRaw, days, archiveId, metaUrl };
 }
 
 // ── Calcular métricas con Product Match Engine ────────────────────────────────

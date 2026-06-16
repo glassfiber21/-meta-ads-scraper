@@ -261,7 +261,10 @@ function renderResults(productos) {
         adsHtml += '<div class="ad-card match-yes">';
         adsHtml += '<div class="ad-advertiser">📢 ' + (a.advertiser || '—') + '</div>';
         adsHtml += '<div class="ad-text">' + (a.ad_text ? a.ad_text.slice(0,150) + '...' : '—') + '</div>';
-        adsHtml += '<div class="ad-link"><a href="' + (a.landing || '#') + '" target="_blank">' + (a.domain || a.landing || '—') + '</a></div>';
+        adsHtml += '<div class="ad-link">🛒 Landing: <a href="' + (a.landing || '#') + '" target="_blank">' + (a.domain || a.landing || '—') + '</a></div>';
+        if (a.metaUrl) {
+          adsHtml += '<div class="ad-link" style="margin-top:3px">📘 <a href="' + a.metaUrl + '" target="_blank">Ver anuncio en Meta Ads Library</a></div>';
+        }
         adsHtml += '<div class="ad-days">' + (a.days !== null ? a.days + ' días activo' : '') + '</div>';
         adsHtml += '</div>';
       }
