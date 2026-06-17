@@ -319,12 +319,18 @@ function renderResults(productos) {
         adsHtml += '<div class="ad-link">🛒 Landing: <a href="' + (a.landing || '#') + '" target="_blank">' + (a.domain || a.landing || '—') + '</a></div>';
         var matchLabel = a.match === 'SAME_FAMILY' ? '🎯 SAME FAMILY' : a.match === 'RELATED_NICHE' ? '🔗 RELATED NICHE' : '❌ UNRELATED';
         adsHtml += '<div style="margin-top:4px;font-size:11px">' + matchLabel + '</div>';
-        if (a.days !== null && a.days !== undefined) {
-          var veteranLabel = a.days >= 180 ? '🏆 ' + a.days + ' días — veterano' :
-                             a.days >= 90  ? '⭐ ' + a.days + ' días — consolidado' :
-                                             '📅 ' + a.days + ' días';
-          var veteranColor = a.days >= 180 ? '#4ade80' : a.days >= 90 ? '#f59e0b' : 'var(--muted)';
-          adsHtml += '<div style="font-size:11px;color:' + veteranColor + ';margin-top:3px">' + veteranLabel + (a.start_date ? ' (desde ' + a.start_date + ')' : '') + '</div>';
+        if (a.is_active) {
+          var realDays = a.real_active_days;
+          var label = realDays !== null && realDays !== undefined
+            ? (realDays >= 90 ? '🏆 Activo desde hace ' + realDays + ' días — VETERANO' : '🟢 Activo desde hace ' + realDays + ' días')
+            : '🟢 Activo';
+          var color = realDays >= 90 ? '#4ade80' : '#60a5fa';
+          adsHtml += '<div style="font-size:11px;color:' + color + ';margin-top:3px">' + label + (a.start_date ? ' (desde ' + a.start_date + ')' : '') + '</div>';
+        } else {
+          adsHtml += '<div style="font-size:11px;color:var(--muted);margin-top:3px">⏸️ Parado (duración real no disponible)' + (a.start_date ? ' · inició ' + a.start_date : '') + '</div>';
+        }
+        if (a.slug) {
+          adsHtml += '<div style="font-size:10px;color:var(--muted);margin-top:2px">📂 path: ' + a.slug + '</div>';
         }
         if (a.metaUrl) {
           adsHtml += '<div class="ad-link" style="margin-top:3px">📘 <a href="' + a.metaUrl + '" target="_blank">Ver anuncio en Meta Ads Library</a></div>';
@@ -347,10 +353,21 @@ function renderResults(productos) {
     var veteranHtml = '';
     if (m && m.top_veteran) {
       var tv = m.top_veteran;
-      var tvColor = tv.days >= 180 ? '#4ade80' : tv.days >= 90 ? '#f59e0b' : 'var(--muted)';
-      veteranHtml = '<div style="font-size:10px;color:' + tvColor + ';margin-top:3px">🏅 ' + tv.advertiser + ' · ' + tv.days + 'd' + (tv.start_date ? ' desde ' + tv.start_date : '') + '</div>';
+      var tvColor = tv.days >= 90 ? '#4ade80' : '#60a5fa';
+      veteranHtml = '<div style="font-size:10px;color:' + tvColor + ';margin-top:3px">🏅 ' + tv.advertiser + ' · activo desde hace ' + tv.days + 'd' + (tv.start_date ? ' (desde ' + tv.start_date + ')' : '') + '</div>';
     }
-    html += '<td><strong>' + p.product + '</strong><div style="font-size:11px;color:var(--muted);margin-top:3px">' + (p.creators||0) + 'c &middot; ' + (p.videos||0) + 'v</div>' + kwUsed + veteranHtml + '</td>';
+    var trendsHtml = '';
+    if (m && m.operadores_independientes !== undefined) {
+      var pasa = m.pasa_a_trends;
+      var trendsColor = pasa ? '#4ade80' : '#f87171';
+      var trendsIcon = pasa ? '✅' : '❌';
+      trendsHtml = '<div style="font-size:10px;margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.08)">'
+        + '<span style="color:var(--muted)">Operadores independientes: </span><strong>' + m.operadores_independientes + '</strong>'
+        + (m.grupos_clonados && m.grupos_clonados.length ? ' <span style="color:#f59e0b">(' + m.grupos_clonados.length + ' grupo(s) clonado(s) detectado(s))</span>' : '')
+        + '<br><span style="color:' + trendsColor + '">' + trendsIcon + ' ' + (pasa ? 'PASA A TRENDS' : 'NO cumple criterio aún') + '</span>'
+        + '</div>';
+    }
+    html += '<td><strong>' + p.product + '</strong><div style="font-size:11px;color:var(--muted);margin-top:3px">' + (p.creators||0) + 'c &middot; ' + (p.videos||0) + 'v</div>' + kwUsed + veteranHtml + trendsHtml + '</td>';
     html += '<td>' + scoreBadge(p.tiktok_score) + '</td>';
     html += '<td><span class="badge badge-blue">' + sfAdv + '</span></td>';
     html += '<td><span class="badge badge-orange">' + rnAdv + '</span></td>';

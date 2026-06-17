@@ -238,9 +238,22 @@ function parsearAnuncio(ad) {
     if (landingRaw) domain = new URL(landingRaw.startsWith('http') ? landingRaw : `https://${landingRaw}`).hostname.replace('www.', '');
   } catch(_) { domain = landingRaw; }
 
-  const days = startRaw ? Math.floor((now - startRaw * 1000) / 86400000) : null;
-  const start_date_iso = startRaw ? new Date(startRaw * 1000).toISOString().split('T')[0] : null;
-  return { advertiser, adText, domain, landingRaw, days, start_date_iso, archiveId, metaUrl };
+  const isActive = ad.status?.is_active === true;
+  // days_since_start: tiempo transcurrido desde que se lanzó el anuncio (NO es lo mismo que "días activo real")
+  const days_since_start = startRaw ? Math.floor((now - startRaw * 1000) / 86400000) : null;
+  const start_date_iso   = startRaw ? new Date(startRaw * 1000).toISOString().split('T')[0] : null;
+  // real_active_days: SOLO tiene sentido si el anuncio sigue activo ahora. Si está parado, no sabemos cuánto duró
+  // (Apify no expone end_date) — lo marcamos como "parado, duración desconocida" en vez de inventar un número.
+  const real_active_days = isActive ? days_since_start : null;
+
+  // Slug de la landing — para deduplicación de operadores
+  let slug = '';
+  try {
+    const u = new URL(landingRaw.startsWith('http') ? landingRaw : `https://${landingRaw}`);
+    slug = u.pathname.replace(/\/$/, '').toLowerCase();
+  } catch(_) { slug = ''; }
+
+  return { advertiser, adText, domain, landingRaw, slug, isActive, days_since_start, real_active_days, start_date_iso, archiveId, metaUrl };
 }
 
 // ── Calcular métricas con Product Match Engine ────────────────────────────────
@@ -273,11 +286,10 @@ async function calcularMetricas(ads, productName) {
 
   for (const ad of ads) {
     const p         = parsearAnuncio(ad);
-    const isActive  = ad.status?.is_active === true;
     const pasaFase1 = filtroBarato(ad, familia);
 
     if (!pasaFase1) {
-      ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, metaUrl: p.metaUrl, is_active: isActive, days: p.days, start_date: p.start_date_iso, match: 'UNRELATED', fase: 'NO_MATCH_FILTER' });
+      ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, slug: p.slug, metaUrl: p.metaUrl, is_active: p.isActive, days_since_start: p.days_since_start, real_active_days: p.real_active_days, start_date: p.start_date_iso, match: 'UNRELATED', fase: 'NO_MATCH_FILTER' });
       continue;
     }
 
@@ -288,7 +300,7 @@ async function calcularMetricas(ads, productName) {
     } else {
       nivel = await matchConIA(productName, ad);
       advertiserDecision.set(p.advertiser, nivel);
-      console.log(`[MATCH IA] "${p.advertiser}" → ${nivel} (activo: ${isActive})`);
+      console.log(`[MATCH IA] "${p.advertiser}" → ${nivel} (activo: ${p.isActive})`);
     }
 
     if (nivel === 'SAME_FAMILY') {
@@ -301,7 +313,7 @@ async function calcularMetricas(ads, productName) {
       if (p.domain) rnDomains.add(p.domain);
     }
 
-    ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, metaUrl: p.metaUrl, is_active: isActive, days: p.days, start_date: p.start_date_iso, match: nivel, fase: nivel });
+    ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, slug: p.slug, metaUrl: p.metaUrl, is_active: p.isActive, days_since_start: p.days_since_start, real_active_days: p.real_active_days, start_date: p.start_date_iso, match: nivel, fase: nivel });
   }
 
   // Anunciantes activos por nivel
@@ -330,22 +342,81 @@ async function calcularMetricas(ads, productName) {
     (rnAdvertisers.size *  5) +   // anunciantes RELATED_NICHE
     (rn_ads             * 0.3);   // ads RELATED_NICHE
 
-  // Veteranía — anunciante SF más veterano
-  const sfAdsRaw = ads_raw.filter(a => a.match === 'SAME_FAMILY' && a.days !== null && a.days !== undefined);
-  const maxDays  = sfAdsRaw.length ? Math.max(...sfAdsRaw.map(a => a.days)) : null;
-  const veteran90  = sfAdsRaw.filter(a => a.days >= 90).length;
-  const veteran180 = sfAdsRaw.filter(a => a.days >= 180).length;
+  // ── P4 corregido — Veteranía REAL ──────────────────────────────────────────
+  // Solo cuenta como "veterano" un anuncio que SIGUE ACTIVO ahora mismo.
+  // Si está parado, no inventamos cuánto duró (Apify no da end_date) — se marca como "parado".
+  const sfAds = ads_raw.filter(a => a.match === 'SAME_FAMILY');
+  const sfAdsConDuracionReal = sfAds.filter(a => a.real_active_days !== null && a.real_active_days !== undefined);
+  const maxDays    = sfAdsConDuracionReal.length ? Math.max(...sfAdsConDuracionReal.map(a => a.real_active_days)) : null;
+  const veteran90  = sfAdsConDuracionReal.filter(a => a.real_active_days >= 90).length;
+  const veteran180 = sfAdsConDuracionReal.filter(a => a.real_active_days >= 180).length;
 
-  // Anunciante más veterano
+  // Anunciante más veterano (solo entre los REALMENTE activos)
   const veteranAdv = {};
-  sfAdsRaw.forEach(a => {
-    if (!veteranAdv[a.advertiser] || a.days > veteranAdv[a.advertiser].days) {
-      veteranAdv[a.advertiser] = { days: a.days, start_date: a.start_date };
+  sfAdsConDuracionReal.forEach(a => {
+    if (!veteranAdv[a.advertiser] || a.real_active_days > veteranAdv[a.advertiser].days) {
+      veteranAdv[a.advertiser] = { days: a.real_active_days, start_date: a.start_date };
     }
   });
   const topVeteran = Object.entries(veteranAdv).sort((x,y) => y[1].days - x[1].days)[0];
 
-  console.log(`[MATCH] "${productName}" → SF: ${sfAdvertisers.size}adv/${sf_ads}ads | RN: ${rnAdvertisers.size}adv/${rn_ads}ads | active_SF_adv: ${activeSFAdvs.size} | max_days: ${maxDays} | score_raw=${raw_score}`);
+  // ── P1 — Motor de deduplicación de landings (operadores independientes) ────
+  // Score de similitud entre cada par de landings SAME_FAMILY: slug +40, título +20, copy +10-20
+  // Agrupa landings con score >80 como "mismo operador"
+  function normalizeText(s) { return (s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim(); }
+  function textSimilarity(a, b) {
+    const wa = new Set(normalizeText(a).split(' ').filter(w => w.length > 3));
+    const wb = new Set(normalizeText(b).split(' ').filter(w => w.length > 3));
+    if (wa.size === 0 || wb.size === 0) return 0;
+    let common = 0;
+    wa.forEach(w => { if (wb.has(w)) common++; });
+    return common / Math.max(wa.size, wb.size); // 0..1
+  }
+
+  // Construimos un "landing" único por anunciante SF (la primera que aparece)
+  const sfByAdvertiser = new Map();
+  sfAds.forEach(a => {
+    if (!sfByAdvertiser.has(a.advertiser)) sfByAdvertiser.set(a.advertiser, a);
+  });
+  const landingsList = [...sfByAdvertiser.values()];
+
+  // Union-Find simple para agrupar
+  const parent = landingsList.map((_, i) => i);
+  function find(i) { while (parent[i] !== i) i = parent[i]; return i; }
+  function union(i, j) { const ri = find(i), rj = find(j); if (ri !== rj) parent[ri] = rj; }
+
+  for (let i = 0; i < landingsList.length; i++) {
+    for (let j = i + 1; j < landingsList.length; j++) {
+      const A = landingsList[i], B = landingsList[j];
+      let score = 0;
+      if (A.slug && B.slug && A.slug === B.slug) score += 40;
+      const titleSim = textSimilarity(A.ad_text.split('\n')[0] || '', B.ad_text.split('\n')[0] || '');
+      if (titleSim > 0.7) score += 20;
+      const copySim = textSimilarity(A.ad_text, B.ad_text);
+      score += Math.round(copySim * 20); // 0-20 según similitud de copy
+      if (score > 80) union(i, j);
+    }
+  }
+
+  const groups = new Map(); // root → [landings]
+  landingsList.forEach((l, i) => {
+    const root = find(i);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(l);
+  });
+
+  const operadoresIndependientes = groups.size;
+  const gruposClonados = [...groups.values()].filter(g => g.length > 1).map(g => ({
+    operadores: g.map(l => l.advertiser),
+    slug_compartido: g[0].slug || null,
+  }));
+
+  console.log(`[MATCH] "${productName}" → SF: ${sfAdvertisers.size}adv/${sf_ads}ads | RN: ${rnAdvertisers.size}adv/${rn_ads}ads | operadores_independientes: ${operadoresIndependientes} | veteranos_reales(>90d activos): ${veteran90} | score_raw=${raw_score}`);
+
+  // ── Criterio de paso a Trends (definido por Laura) ──────────────────────────
+  const cumpleCriterioOperadores = operadoresIndependientes >= 3;
+  const cumpleCriterioVeterano   = veteran90 >= 1;
+  const pasaATrends = cumpleCriterioOperadores || cumpleCriterioVeterano;
 
   return {
     total_ads_found:    ads.length,
@@ -367,11 +438,18 @@ async function calcularMetricas(ads, productName) {
     advertisers:      [...sfAdvertisers, ...rnAdvertisers],
     meta_score_raw:   raw_score,
     meta_score:       0,
-    // P4 — Veteranía
+    // P4 — Veteranía REAL (solo activos)
     max_days_active:  maxDays,
     ads_veteran_90:   veteran90,
     ads_veteran_180:  veteran180,
     top_veteran:      topVeteran ? { advertiser: topVeteran[0], days: topVeteran[1].days, start_date: topVeteran[1].start_date } : null,
+    // P1 — Deduplicación de operadores
+    operadores_independientes: operadoresIndependientes,
+    grupos_clonados: gruposClonados,
+    // Decisión final
+    cumple_criterio_operadores: cumpleCriterioOperadores,
+    cumple_criterio_veterano: cumpleCriterioVeterano,
+    pasa_a_trends: pasaATrends,
     ads_raw,
   };
 }
