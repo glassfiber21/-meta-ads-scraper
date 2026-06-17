@@ -361,10 +361,17 @@ function renderResults(productos) {
       var pasa = m.pasa_a_trends;
       var trendsColor = pasa ? '#4ade80' : '#f87171';
       var trendsIcon = pasa ? '✅' : '❌';
+      var c1 = m.cumple_criterio_operadores;
+      var c2 = m.cumple_criterio_veterano;
       trendsHtml = '<div style="font-size:10px;margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.08)">'
         + '<span style="color:var(--muted)">Operadores independientes: </span><strong>' + m.operadores_independientes + '</strong>'
-        + (m.grupos_clonados && m.grupos_clonados.length ? ' <span style="color:#f59e0b">(' + m.grupos_clonados.length + ' grupo(s) clonado(s) detectado(s))</span>' : '')
-        + '<br><span style="color:' + trendsColor + '">' + trendsIcon + ' ' + (pasa ? 'PASA A TRENDS' : 'NO cumple criterio aún') + '</span>'
+        + (m.grupos_clonados && m.grupos_clonados.length ? ' <span style="color:#f59e0b">(' + m.grupos_clonados.length + ' grupo(s) clonado(s) fusionados)</span>' : '')
+        + '<div style="margin-top:3px">'
+        + (c1 ? '✅' : '◽') + ' ≥3 operadores independientes'
+        + '</div><div>'
+        + (c2 ? '✅' : '◽') + ' ≥1 operador &gt;90 días activo real'
+        + '</div>'
+        + '<div style="margin-top:3px;color:' + trendsColor + '">' + trendsIcon + ' ' + (pasa ? 'PASA A TRENDS' : 'NO cumple criterio aún') + (c1 && c2 ? ' (cumple ambos)' : '') + '</div>'
         + '</div>';
     }
     html += '<td><strong>' + p.product + '</strong><div style="font-size:11px;color:var(--muted);margin-top:3px">' + (p.creators||0) + 'c &middot; ' + (p.videos||0) + 'v</div>' + kwUsed + veteranHtml + trendsHtml + '</td>';

@@ -389,12 +389,13 @@ async function calcularMetricas(ads, productName) {
     for (let j = i + 1; j < landingsList.length; j++) {
       const A = landingsList[i], B = landingsList[j];
       let score = 0;
+      // Slug idéntico y no vacío es la señal más fuerte de clonación (ej. mismo /pages/news-interactive-...)
       if (A.slug && B.slug && A.slug === B.slug) score += 40;
       const titleSim = textSimilarity(A.ad_text.split('\n')[0] || '', B.ad_text.split('\n')[0] || '');
-      if (titleSim > 0.7) score += 20;
+      score += Math.round(titleSim * 20);
       const copySim = textSimilarity(A.ad_text, B.ad_text);
-      score += Math.round(copySim * 20); // 0-20 según similitud de copy
-      if (score > 80) union(i, j);
+      score += Math.round(copySim * 40); // copy es la señal más disponible sin scraping de precio/imagen
+      if (score >= 80) union(i, j);
     }
   }
 
