@@ -248,12 +248,15 @@ function parsearAnuncio(ad) {
 
   // Slug de la landing — para deduplicación de operadores
   let slug = '';
+  let slugFinal = ''; // último segmento del path, ignora prefijo /pages/, /funnel/, /products/, etc.
   try {
     const u = new URL(landingRaw.startsWith('http') ? landingRaw : `https://${landingRaw}`);
     slug = u.pathname.replace(/\/$/, '').toLowerCase();
-  } catch(_) { slug = ''; }
+    const parts = slug.split('/').filter(Boolean);
+    slugFinal = parts.length ? parts[parts.length - 1] : '';
+  } catch(_) { slug = ''; slugFinal = ''; }
 
-  return { advertiser, adText, domain, landingRaw, slug, isActive, days_since_start, real_active_days, start_date_iso, archiveId, metaUrl };
+  return { advertiser, adText, domain, landingRaw, slug, slugFinal, isActive, days_since_start, real_active_days, start_date_iso, archiveId, metaUrl };
 }
 
 // ── Calcular métricas con Product Match Engine ────────────────────────────────
@@ -289,7 +292,7 @@ async function calcularMetricas(ads, productName) {
     const pasaFase1 = filtroBarato(ad, familia);
 
     if (!pasaFase1) {
-      ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, slug: p.slug, metaUrl: p.metaUrl, is_active: p.isActive, days_since_start: p.days_since_start, real_active_days: p.real_active_days, start_date: p.start_date_iso, match: 'UNRELATED', fase: 'NO_MATCH_FILTER' });
+      ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, slug: p.slug, slugFinal: p.slugFinal, metaUrl: p.metaUrl, is_active: p.isActive, days_since_start: p.days_since_start, real_active_days: p.real_active_days, start_date: p.start_date_iso, match: 'UNRELATED', fase: 'NO_MATCH_FILTER' });
       continue;
     }
 
@@ -313,7 +316,7 @@ async function calcularMetricas(ads, productName) {
       if (p.domain) rnDomains.add(p.domain);
     }
 
-    ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, slug: p.slug, metaUrl: p.metaUrl, is_active: p.isActive, days_since_start: p.days_since_start, real_active_days: p.real_active_days, start_date: p.start_date_iso, match: nivel, fase: nivel });
+    ads_raw.push({ advertiser: p.advertiser, ad_text: p.adText.slice(0,200), domain: p.domain, landing: p.landingRaw, slug: p.slug, slugFinal: p.slugFinal, metaUrl: p.metaUrl, is_active: p.isActive, days_since_start: p.days_since_start, real_active_days: p.real_active_days, start_date: p.start_date_iso, match: nivel, fase: nivel });
   }
 
   // Anunciantes activos por nivel
@@ -389,13 +392,14 @@ async function calcularMetricas(ads, productName) {
     for (let j = i + 1; j < landingsList.length; j++) {
       const A = landingsList[i], B = landingsList[j];
       let score = 0;
-      // Slug idéntico y no vacío es la señal más fuerte de clonación (ej. mismo /pages/news-interactive-...)
-      if (A.slug && B.slug && A.slug === B.slug) score += 40;
+      // slugFinal compara el último segmento del path, ignorando si el prefijo es /pages/, /funnel/, /products/, etc.
+      if (A.slugFinal && B.slugFinal && A.slugFinal === B.slugFinal) score += 50;
       const titleSim = textSimilarity(A.ad_text.split('\n')[0] || '', B.ad_text.split('\n')[0] || '');
       score += Math.round(titleSim * 20);
       const copySim = textSimilarity(A.ad_text, B.ad_text);
-      score += Math.round(copySim * 40); // copy es la señal más disponible sin scraping de precio/imagen
-      if (score >= 80) union(i, j);
+      // Copy casi idéntico (≥0.9) = mismo script de dropshipping reciclado → señal tan fuerte como el slug
+      score += copySim >= 0.9 ? 60 : Math.round(copySim * 30);
+      if (score >= 70) union(i, j);
     }
   }
 
