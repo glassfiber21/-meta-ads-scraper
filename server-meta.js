@@ -411,6 +411,12 @@ async function calcularMetricas(ads, productName) {
     operadores: g.map(l => l.advertiser),
     slug_compartido: g[0].slug || null,
   }));
+  // Lista de los N operadores finales (1 representante por grupo, sea clon o no)
+  const operadoresLista = [...groups.values()].map(g => ({
+    representante: g[0].advertiser,
+    domain: g[0].domain || null,
+    miembros: g.map(l => l.advertiser),
+  }));
 
   console.log(`[MATCH] "${productName}" → SF: ${sfAdvertisers.size}adv/${sf_ads}ads | RN: ${rnAdvertisers.size}adv/${rn_ads}ads | operadores_independientes: ${operadoresIndependientes} | veteranos_reales(>90d activos): ${veteran90} | score_raw=${raw_score}`);
 
@@ -447,6 +453,7 @@ async function calcularMetricas(ads, productName) {
     // P1 — Deduplicación de operadores
     operadores_independientes: operadoresIndependientes,
     grupos_clonados: gruposClonados,
+    operadores_lista: operadoresLista,
     // Decisión final
     cumple_criterio_operadores: cumpleCriterioOperadores,
     cumple_criterio_veterano: cumpleCriterioVeterano,

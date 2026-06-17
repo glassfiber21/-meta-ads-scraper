@@ -130,7 +130,7 @@
           <th class="tag-meta">Estado actor</th>
           <th class="tag-meta">Meta score</th>
           <th>Score final</th>
-          <th>Landing pages</th>
+          <th>Operadores (landing)</th>
         </tr>
       </thead>
       <tbody id="resultsBody"></tbody>
@@ -287,16 +287,24 @@ function renderResults(productos) {
     var m = p.meta;
     var sfClass = p.score_final >= p.tiktok_score ? 'score-up' : p.score_final < p.tiktok_score * 0.8 ? 'score-down' : 'score-same';
     var domains = '—';
-    if (m && m.ads_raw) {
-      var sfDomains = [];
-      var seen = {};
+    if (m && m.operadores_independientes !== undefined && m.ads_raw) {
+      // Mostramos un dominio representativo por cada operador YA AGRUPADO (no por dominio simple)
+      // Reconstruimos los grupos a partir de grupos_clonados + el resto de SF que no fueron fusionados
+      var clonedAdvertisers = {};
+      (m.grupos_clonados || []).forEach(function(g) {
+        g.operadores.forEach(function(adv) { clonedAdvertisers[adv] = g.operadores[0]; }); // representante = primero del grupo
+      });
+      var repDomains = [];
+      var seenRep = {};
       m.ads_raw.forEach(function(a) {
-        if (a.match === 'SAME_FAMILY' && a.domain && !seen[a.domain]) {
-          seen[a.domain] = true;
-          sfDomains.push(a.domain);
+        if (a.match !== 'SAME_FAMILY' || !a.domain) return;
+        var rep = clonedAdvertisers[a.advertiser] || a.advertiser;
+        if (!seenRep[rep]) {
+          seenRep[rep] = true;
+          repDomains.push(a.domain);
         }
       });
-      if (sfDomains.length) domains = sfDomains.slice(0,5).join('<br>');
+      if (repDomains.length) domains = repDomains.slice(0,5).join('<br>');
     }
     // Ads detail
     var adsHtml = '';
@@ -363,9 +371,24 @@ function renderResults(productos) {
       var trendsIcon = pasa ? '✅' : '❌';
       var c1 = m.cumple_criterio_operadores;
       var c2 = m.cumple_criterio_veterano;
+      var operadoresDetailId = 'operadores-' + i;
+      var operadoresDetail = '';
+      if (m.operadores_lista && m.operadores_lista.length) {
+        operadoresDetail += '<div id="' + operadoresDetailId + '" style="display:none;margin-top:4px;font-size:10px;color:var(--muted)">';
+        m.operadores_lista.forEach(function(op, idx) {
+          var esClon = op.miembros.length > 1;
+          operadoresDetail += '<div style="margin-top:2px">' + (idx+1) + '. <strong>' + op.representante + '</strong>' + (op.domain ? ' (' + op.domain + ')' : '')
+            + (esClon ? ' <span style="color:#f59e0b">[fusiona: ' + op.miembros.join(', ') + ']</span>' : '')
+            + '</div>';
+        });
+        operadoresDetail += '</div>';
+      }
       trendsHtml = '<div style="font-size:10px;margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.08)">'
         + '<span style="color:var(--muted)">Operadores independientes: </span><strong>' + m.operadores_independientes + '</strong>'
-        + (m.grupos_clonados && m.grupos_clonados.length ? ' <span style="color:#f59e0b">(' + m.grupos_clonados.length + ' grupo(s) clonado(s) fusionados)</span>' : '')
+        + (m.operadores_lista && m.operadores_lista.length
+            ? ' <span style="color:#60a5fa;cursor:pointer;text-decoration:underline" onclick="var d=document.getElementById(\'' + operadoresDetailId + '\');d.style.display=d.style.display===\'none\'?\'block\':\'none\';">(ver cuáles)</span>'
+            : '')
+        + operadoresDetail
         + '<div style="margin-top:3px">'
         + (c1 ? '✅' : '◽') + ' ≥3 operadores independientes'
         + '</div><div>'
