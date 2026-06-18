@@ -1,12 +1,13 @@
 {
-  "name": "trends-test",
-  "version": "0.1.0",
-  "main": "trends-test.js",
+  "name": "meta-ads-scraper",
+  "version": "5.0.0",
+  "main": "server.js",
   "scripts": {
-    "start": "node trends-test.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
+    "puppeteer": "^21.0.0",
     "cors": "^2.8.5"
   },
   "engines": {
