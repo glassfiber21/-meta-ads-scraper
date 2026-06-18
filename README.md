@@ -1,53 +1,27 @@
-# Meta Ads Scraper - Servidor Puente
+# Trends Test (capa Google Trends — endpoint aislado)
 
-Servidor Express que hace scraping de Meta Ad Library para el Cazador de Productos de Oficina IA Ecommerce.
+Servicio mínimo para validar el actor `data_xplorer/google-trends-fast-scraper`
+(ID `nWhM7vTPu16lcwuIg`) antes de integrarlo como Fase 3 en el pipeline principal
+de Cazador de Productos.
 
-## Despliegue en Railway
+## Variables de entorno requeridas
 
-1. Sube estos archivos a un repositorio de GitHub
-2. En Railway: New Project → Deploy from GitHub repo
-3. Selecciona el repositorio
-4. Railway detecta el Dockerfile automáticamente
-5. Deploy
+- `APIFY_API_KEY` — token de Apify (añadir vía GraphQL API en Railway, no desde la UI)
 
-## Uso
+## Endpoints
 
-### POST /scrape-ads
+- `GET /health` — comprobación básica
+- `GET /test-trends?keyword=dog+cooling+mat&geo=US` — lanza el actor dos veces
+  (90 días y 12 meses) para la keyword indicada y devuelve el JSON crudo de
+  ambos datasets, sin clasificar. Objetivo: confirmar la forma real de los
+  datos antes de escribir la lógica de clasificación (Subiendo/Plano/Bajando
+  + estacionalidad).
 
-```json
-{
-  "country": "US",
-  "niche": "fitness",
-  "min_days_active": 30,
-  "limit": 10
-}
-```
+## Siguiente paso tras validar
 
-### Respuesta
-
-```json
-{
-  "success": true,
-  "total_found": 8,
-  "ads": [
-    {
-      "id": "123456",
-      "page_name": "FitLife Products",
-      "ad_text": "Transform your body in 30 days...",
-      "start_date": "January 15, 2024",
-      "days_active": 145,
-      "image_url": "https://...",
-      "library_url": "https://www.facebook.com/ads/library/?id=123456"
-    }
-  ]
-}
-```
-
-## Parámetros
-
-| Parámetro | Tipo | Default | Descripción |
-|---|---|---|---|
-| country | string | US | US, UK/GB, ES |
-| niche | string | - | Palabra clave del nicho |
-| min_days_active | number | 30 | Días mínimos activo el anuncio |
-| limit | number | 10 | Número máximo de resultados |
+Una vez confirmado el formato del dataset:
+1. Añadir clasificación de tendencia (90d y 12m) + detección de estacionalidad.
+2. Añadir prompt de Claude para generar la keyword de Trends a partir del
+   nombre del producto validado en Meta (keyword distinta a la de Meta Ads).
+3. Integrar como Fase 3 en `server.js` del repo principal
+   (`glassfiber21/-meta-ads-scraper`).

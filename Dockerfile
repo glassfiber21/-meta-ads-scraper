@@ -1,7 +1,4 @@
-FROM ghcr.io/puppeteer/puppeteer:21.0.0
-
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+FROM node:18-slim
 
 WORKDIR /usr/src/app
 
@@ -10,6 +7,6 @@ RUN npm install --omit=dev
 
 COPY . .
 
-EXPOSE 3000
+EXPOSE 3001
 
-CMD ["node", "server.js"]
+CMD ["node", "trends-test.js"]
