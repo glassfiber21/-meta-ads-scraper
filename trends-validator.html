@@ -55,9 +55,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .summary-card.verde{background:linear-gradient(135deg,#022c22 0%,#001a14 100%);border-color:#065f46}
 .summary-card.amarillo{background:linear-gradient(135deg,#2d1a00 0%,#1a0f00 100%);border-color:#78350f}
 .summary-card.rojo{background:linear-gradient(135deg,#2d0a0a 0%,#1a0505 100%);border-color:#7f1d1d}
-.summary-top{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+.summary-top{display:flex;align-items:center;gap:14px;margin-bottom:18px;flex-wrap:wrap}
 .summary-icon{font-size:38px;line-height:1}
 .summary-title{font-size:20px;font-weight:800;letter-spacing:-0.3px}
+.phase-pill{margin-left:auto;font-size:12px;font-weight:700;padding:5px 14px;border-radius:20px;background:rgba(255,255,255,0.06);color:#e5e5e5;border:1px solid rgba(255,255,255,0.12);white-space:nowrap}
+
+/* ── % del pico (barra de progreso) ── */
+.peak-bar-wrap{margin-top:6px}
+.peak-bar-track{width:100%;height:8px;background:#06120f;border-radius:6px;overflow:hidden;margin:8px 0 6px}
+.peak-bar-fill{height:100%;background:linear-gradient(90deg,#0d9488,#34d399);border-radius:6px;transition:width 0.6s ease}
+.peak-bar-lbl{font-size:12px;color:#9ca3af;display:flex;justify-content:space-between}
+.peak-bar-lbl strong{color:#5eead4;font-size:13px}
 .summary-card.verde .summary-title{color:#6ee7b7}
 .summary-card.amarillo .summary-title{color:#fbbf24}
 .summary-card.rojo .summary-title{color:#fca5a5}
@@ -178,6 +186,14 @@ function formatPeakDate(isoDate) {
   return `${d} de ${MONTH_ES[m - 1]} de ${y}`;
 }
 
+// change viene como fracción (0.38 = +38%) o null si no hay base para calcularlo
+function formatChange(change) {
+  if (change === null || change === undefined) return '';
+  const pct = Math.round(change * 100);
+  const sign = pct > 0 ? '+' : '';
+  return `${sign}${pct}%`;
+}
+
 const TREND_ICON = { 'Subiendo': '↗️', 'Creciendo': '↗️', 'Plano': '→', 'Estable': '→', 'Bajando': '↘️', 'Cayendo': '↘️' };
 const TREND_CLASS = { 'Subiendo': 'up', 'Creciendo': 'up', 'Plano': 'flat', 'Estable': 'flat', 'Bajando': 'down', 'Cayendo': 'down' };
 
@@ -197,6 +213,9 @@ function renderResult(data) {
   const svg90 = buildSparkline(data.timeline_90d, data.trend_90d);
   const svg12 = buildSparkline(data.timeline_12m, data.trend_12m);
 
+  const pct90 = formatChange(data.trend_90d_change);
+  const pct12 = formatChange(data.trend_12m_change);
+
   content.innerHTML = `
     <div class="kw-row">
       <span class="kw-lbl">Keyword Trends utilizada:</span>
@@ -208,15 +227,16 @@ function renderResult(data) {
       <div class="summary-top">
         <div class="summary-icon">${sem.icon}</div>
         <div class="summary-title">${sem.title}</div>
+        ${data.phase ? `<span class="phase-pill">${data.phase_icon || ''} Fase: ${escapeHtml(data.phase)}</span>` : ''}
       </div>
       <div class="summary-grid">
         <div class="summary-stat">
           <div class="summary-stat-lbl">90 días</div>
-          <div class="summary-stat-val">${TREND_ICON[data.trend_90d] || ''} ${data.trend_90d}</div>
+          <div class="summary-stat-val">${TREND_ICON[data.trend_90d] || ''} ${data.trend_90d}${pct90 ? ` (${pct90})` : ''}</div>
         </div>
         <div class="summary-stat">
           <div class="summary-stat-lbl">12 meses</div>
-          <div class="summary-stat-val">${TREND_ICON[data.trend_12m] || ''} ${trend12Label}</div>
+          <div class="summary-stat-val">${TREND_ICON[data.trend_12m] || ''} ${trend12Label}${pct12 ? ` (${pct12})` : ''}</div>
         </div>
         <div class="summary-stat">
           <div class="summary-stat-lbl">Estacionalidad</div>
@@ -230,14 +250,14 @@ function renderResult(data) {
       <div class="chart-card">
         <div class="chart-hdr">
           <span class="chart-title">Últimos 90 días</span>
-          <span class="chart-trend ${TREND_CLASS[data.trend_90d]}">${TREND_ICON[data.trend_90d] || ''} ${data.trend_90d}</span>
+          <span class="chart-trend ${TREND_CLASS[data.trend_90d]}">${TREND_ICON[data.trend_90d] || ''} ${data.trend_90d}${pct90 ? ` ${pct90}` : ''}</span>
         </div>
         <div class="chart-svg-wrap">${svg90}</div>
       </div>
       <div class="chart-card">
         <div class="chart-hdr">
           <span class="chart-title">Últimos 12 meses</span>
-          <span class="chart-trend ${TREND_CLASS[data.trend_12m]}">${TREND_ICON[data.trend_12m] || ''} ${trend12Label}</span>
+          <span class="chart-trend ${TREND_CLASS[data.trend_12m]}">${TREND_ICON[data.trend_12m] || ''} ${trend12Label}${pct12 ? ` ${pct12}` : ''}</span>
         </div>
         <div class="chart-svg-wrap">${svg12}</div>
       </div>
@@ -263,6 +283,14 @@ function renderResult(data) {
         <span class="season-badge yes" style="background:#1c1500;color:#fbbf24;border-color:#78350f">📍 Pico máximo</span>
         <span class="season-months"><strong>${formatPeakDate(data.annual_peak.date)}</strong> · Valor: <strong>${data.annual_peak.value}</strong></span>
       </div>
+      ${data.vs_peak ? `
+      <div class="peak-bar-wrap">
+        <div class="peak-bar-track"><div class="peak-bar-fill" style="width:${Math.min(data.vs_peak.pctOfPeak, 100)}%"></div></div>
+        <div class="peak-bar-lbl">
+          <span>Interés actual: <strong>${data.vs_peak.currentValue}</strong></span>
+          <span>Estamos al <strong>${data.vs_peak.pctOfPeak}%</strong> del pico anual</span>
+        </div>
+      </div>` : ''}
     </div>` : ''}
 
     <div class="meta-row">

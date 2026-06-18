@@ -97,9 +97,10 @@ function classifyTrend(points) {
   const avg1 = avg(firstHalf);
   const avg2 = avg(secondHalf);
 
-  // Evita división por cero cuando el interés histórico es 0
-  if (avg1 === 0 && avg2 === 0) return { trend: 'Plano', avg1, avg2 };
-  if (avg1 === 0) return { trend: 'Subiendo', avg1, avg2 }; // de 0 a algo siempre es subida
+  // Evita división por cero cuando el interés histórico es 0.
+  // change=null indica "sin base para calcular %" (no es lo mismo que 0%).
+  if (avg1 === 0 && avg2 === 0) return { trend: 'Plano', avg1, avg2, change: 0 };
+  if (avg1 === 0) return { trend: 'Subiendo', avg1, avg2, change: null }; // de 0 a algo: % no representable
 
   const change = (avg2 - avg1) / avg1;
   if (change > 0.15) return { trend: 'Subiendo', avg1, avg2, change };
@@ -154,6 +155,44 @@ function findAnnualPeak(points12m) {
   return { date: peak.date, value: peak.value };
 }
 
+// Compara el último valor no-parcial contra el pico anual.
+// Responde a "¿llego con margen de recorrido o ya casi pasó el momento?"
+function calcCurrentVsPeak(points12m, peak) {
+  if (!peak || peak.value === 0) return null;
+  const clean = points12m.filter(p => !p.isPartial);
+  if (clean.length === 0) return null;
+
+  const current = clean[clean.length - 1];
+  const pctOfPeak = Math.round((current.value / peak.value) * 100);
+  return { currentValue: current.value, currentDate: current.date, pctOfPeak };
+}
+
+// Fase del ciclo: combina tendencia 12m + estacionalidad + posición vs pico.
+// Es una heurística de lectura rápida, no una predicción — el nombre de cada
+// fase ya indica lo que el usuario debe esperar a corto plazo.
+function classifyPhase(trend12, seasonality, vsPeak) {
+  const pct = vsPeak ? vsPeak.pctOfPeak : null;
+
+  if (trend12.trend === 'Bajando' && pct !== null && pct < 50) {
+    return { phase: 'Declive', icon: '🔴' };
+  }
+  if (trend12.trend === 'Subiendo' && pct !== null && pct >= 70) {
+    return seasonality.seasonal
+      ? { phase: 'Expansión estacional', icon: '🟢' }
+      : { phase: 'Expansión', icon: '🟢' };
+  }
+  if (trend12.trend === 'Subiendo') {
+    return { phase: 'Expansión temprana', icon: '🟢' };
+  }
+  if (trend12.trend === 'Plano' && pct !== null && pct >= 70) {
+    return { phase: 'Madurez', icon: '🟡' };
+  }
+  if (trend12.trend === 'Bajando') {
+    return { phase: 'Enfriamiento', icon: '🟡' };
+  }
+  return { phase: 'Madurez', icon: '🟡' };
+}
+
 function buildSummary(trend90, trend12, seasonality) {
   const down12 = trend12.trend === 'Bajando';
 
@@ -202,6 +241,8 @@ app.get('/test-trends', async (req, res) => {
     const trend12 = classifyTrend(parsed12.points);
     const seasonality = detectSeasonality(parsed12.points);
     const annualPeak = findAnnualPeak(parsed12.points);
+    const vsPeak = calcCurrentVsPeak(parsed12.points, annualPeak);
+    const phase = classifyPhase(trend12, seasonality, vsPeak);
     const summary = buildSummary(trend90, trend12, seasonality);
 
     res.json({
@@ -210,10 +251,15 @@ app.get('/test-trends', async (req, res) => {
       timeline_90d: parsed90.points,
       timeline_12m: parsed12.points,
       trend_90d: trend90.trend,
+      trend_90d_change: trend90.change, // fracción, ej. 0.38 = +38%
       trend_12m: trend12.trend,
+      trend_12m_change: trend12.change,
       seasonality: seasonality.seasonal,
       strong_months: seasonality.strongMonths,
       annual_peak: annualPeak,
+      vs_peak: vsPeak,
+      phase: phase.phase,
+      phase_icon: phase.icon,
       semaforo: summary.semaforo,
       interpretacion: summary.interpretacion,
       count_90d: data90d.length,
