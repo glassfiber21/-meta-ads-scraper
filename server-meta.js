@@ -625,12 +625,360 @@ app.get('/api/productos', (req, res) => {
   res.json(PRODUCTOS_TIKTOK);
 });
 
-app.use(express.static(path.join(__dirname)));
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'meta-validator.html'));
+// ─────────────────────────────────────────────────────────────────────────────
+// CAPA DE VIABILIDAD ECONÓMICA
+// Búsqueda en tiempo real en Meta Ads Library filtrada por país + ventana corta
+// Extrae precios de landing pages para calcular min/media/max de la competencia
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Mapa de países → configuración de moneda y código ISO para Meta Ads
+const COUNTRY_CONFIG = {
+  ES: { currency: '€', name: 'España',    locale: 'es' },
+  DE: { currency: '€', name: 'Alemania',  locale: 'de' },
+  FR: { currency: '€', name: 'Francia',   locale: 'fr' },
+  IT: { currency: '€', name: 'Italia',    locale: 'it' },
+  UK: { currency: '£', name: 'Reino Unido', locale: 'en' },
+  US: { currency: '$', name: 'EE.UU.',    locale: 'en' },
+  PT: { currency: '€', name: 'Portugal',  locale: 'pt' },
+  NL: { currency: '€', name: 'Países Bajos', locale: 'nl' },
+  BE: { currency: '€', name: 'Bélgica',   locale: 'nl' },
+  PL: { currency: 'zł', name: 'Polonia',  locale: 'pl' },
+};
+
+// Traducir/adaptar la keyword al idioma del país objetivo usando Claude
+async function traducirKeyword(keyword, country) {
+  const cfg = COUNTRY_CONFIG[country];
+  if (!cfg || cfg.locale === 'en') return keyword; // inglés → no traducir
+
+  const prompt = `You are an expert in dropshipping and Meta Ads.
+Translate the following product search keyword to ${cfg.name} (language: ${cfg.locale}), adapting it to what a LOCAL buyer or local advertiser would search for on Meta Ads Library.
+Do NOT over-translate generic terms — keep the most effective commercial phrasing.
+
+Original keyword (English): "${keyword}"
+Target country: ${cfg.name}
+Target language: ${cfg.locale}
+
+Respond ONLY with a JSON object, no markdown:
+{
+  "translated_keyword": "the translated keyword",
+  "reasoning": "brief reason"
+}`;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 150,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    const data = await res.json();
+    const text = (data.content?.[0]?.text || '').trim().replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(text);
+    console.log(`[VIABILIDAD] Keyword traducida: "${keyword}" → "${parsed.translated_keyword}" (${cfg.name})`);
+    return parsed.translated_keyword;
+  } catch(e) {
+    console.error('[VIABILIDAD] Error traduciendo keyword:', e.message);
+    return keyword; // fallback: usar original
+  }
+}
+
+// Llamada REAL al actor de Apify con keyword + país + ventana temporal
+async function scrapeMetaAdsLive(keyword, country, days = 7) {
+  if (!APIFY_API_KEY) throw new Error('APIFY_API_KEY no configurada');
+
+  const sinceDate = new Date();
+  sinceDate.setDate(sinceDate.getDate() - days);
+  const sinceDateStr = sinceDate.toISOString().split('T')[0]; // YYYY-MM-DD
+
+  console.log(`[VIABILIDAD] Lanzando actor Apify: keyword="${keyword}" country="${country}" desde=${sinceDateStr}`);
+
+  // Lanzar el actor
+  const runRes = await fetch(`https://api.apify.com/v2/acts/${META_ACTOR}/runs?token=${APIFY_API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      searchTerms: [keyword],
+      country: country,
+      activeStatus: 'ACTIVE',
+      adType: 'ALL',
+      startDateMin: sinceDateStr,
+      maxResults: 30,
+    }),
+  });
+
+  if (!runRes.ok) {
+    const err = await runRes.text();
+    throw new Error(`Error lanzando actor Apify: ${runRes.status} — ${err}`);
+  }
+
+  const runData = await runRes.json();
+  const runId   = runData.data?.id;
+  if (!runId) throw new Error('No se obtuvo runId del actor Apify');
+
+  console.log(`[VIABILIDAD] Actor lanzado, runId=${runId}. Esperando resultados...`);
+
+  // Polling hasta que el run termine (máx 3 minutos)
+  const maxWait = 180_000;
+  const poll    = 5_000;
+  const start   = Date.now();
+
+  while (Date.now() - start < maxWait) {
+    await new Promise(r => setTimeout(r, poll));
+
+    const statusRes = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${APIFY_API_KEY}`);
+    const statusData = await statusRes.json();
+    const status = statusData.data?.status;
+
+    console.log(`[VIABILIDAD] Run ${runId} status: ${status}`);
+
+    if (status === 'SUCCEEDED') {
+      const datasetId = statusData.data?.defaultDatasetId;
+      const itemsRes  = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${APIFY_API_KEY}&limit=30`);
+      const items     = await itemsRes.json();
+      console.log(`[VIABILIDAD] Obtenidos ${items.length} anuncios del actor`);
+      return items;
+    }
+
+    if (['FAILED', 'ABORTED', 'TIMED-OUT'].includes(status)) {
+      throw new Error(`Actor Apify terminó con status: ${status}`);
+    }
+  }
+
+  throw new Error('Timeout esperando resultados del actor Apify (>3 min)');
+}
+
+// Extraer precio de una landing page usando Puppeteer
+async function extraerPrecioDeLanding(url) {
+  if (!url || !url.startsWith('http')) return null;
+
+  let browser;
+  try {
+    const puppeteer = require('puppeteer');
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    });
+    const page = await browser.newPage();
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36');
+    await page.setDefaultTimeout(15000);
+
+    // Bloquear imágenes/CSS para ir más rápido
+    await page.setRequestInterception(true);
+    page.on('request', req => {
+      if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
+        req.abort();
+      } else {
+        req.continue();
+      }
+    });
+
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+
+    // Buscar precios en el DOM con múltiples estrategias
+    const precio = await page.evaluate(() => {
+      // Estrategia 1: metadatos de precio estructurado (Shopify, WooCommerce)
+      const ogPrice = document.querySelector('meta[property="og:price:amount"]')?.getAttribute('content');
+      if (ogPrice && !isNaN(parseFloat(ogPrice))) return parseFloat(ogPrice);
+
+      // Estrategia 2: JSON-LD (schema.org/Product)
+      const jsonLds = document.querySelectorAll('script[type="application/ld+json"]');
+      for (const el of jsonLds) {
+        try {
+          const data = JSON.parse(el.textContent);
+          const price = data?.offers?.price || data?.offers?.[0]?.price;
+          if (price && !isNaN(parseFloat(price))) return parseFloat(price);
+        } catch(e) {}
+      }
+
+      // Estrategia 3: selectores comunes de precio en Shopify/WooCommerce
+      const selectors = [
+        '.price .money', '.product__price .money', '[data-product-price]',
+        '.woocommerce-Price-amount', '.price-item--regular',
+        '.product-price__price', '[class*="price"][class*="sale"]',
+        '.price', '[itemprop="price"]', '[class*="Price"]',
+      ];
+      for (const sel of selectors) {
+        const el = document.querySelector(sel);
+        if (el) {
+          const text = el.getAttribute('content') || el.textContent;
+          const match = text?.match(/[\d]+[.,][\d]{2}/);
+          if (match) {
+            const num = parseFloat(match[0].replace(',', '.'));
+            if (!isNaN(num) && num > 0 && num < 10000) return num;
+          }
+        }
+      }
+
+      // Estrategia 4: regex sobre todo el texto de la página (último recurso)
+      const bodyText = document.body?.innerText || '';
+      // Busca patrones tipo "€29,99" o "$19.99" o "29.99€"
+      const matches = bodyText.match(/(?:€|£|\$|USD|EUR)\s?(\d{1,4}[.,]\d{2})|(\d{1,4}[.,]\d{2})\s?(?:€|£|\$)/g);
+      if (matches && matches.length > 0) {
+        const prices = matches
+          .map(m => parseFloat(m.replace(/[^0-9.,]/g, '').replace(',', '.')))
+          .filter(p => !isNaN(p) && p > 0 && p < 10000);
+        if (prices.length > 0) return Math.min(...prices); // precio más bajo encontrado
+      }
+
+      return null;
+    });
+
+    return precio;
+  } catch(e) {
+    console.warn(`[VIABILIDAD] Error scraping ${url}: ${e.message}`);
+    return null;
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+  }
+}
+
+// Extraer landing pages únicas de los anuncios y scraping de precios
+async function extraerPrecios(ads, currency) {
+  // Recopilar landing pages únicas con link_url
+  const landingMap = new Map(); // domain → url (una por dominio)
+  for (const ad of ads) {
+    const url = ad.ad_content?.link_url || ad.link_url;
+    if (!url || !url.startsWith('http')) continue;
+    try {
+      const domain = new URL(url).hostname.replace(/^www\./, '');
+      if (!landingMap.has(domain)) landingMap.set(domain, url);
+    } catch(e) {}
+  }
+
+  const landings = [...landingMap.entries()]; // [[domain, url], ...]
+  console.log(`[VIABILIDAD] ${landings.length} landing pages únicas a scrapear`);
+
+  // Scrapear en paralelo (máx 5 simultáneas para no saturar)
+  const resultados = [];
+  const batchSize = 5;
+  for (let i = 0; i < landings.length; i += batchSize) {
+    const batch = landings.slice(i, i + batchSize);
+    const proms = batch.map(async ([domain, url]) => {
+      const precio = await extraerPrecioDeLanding(url);
+      return { domain, url, precio };
+    });
+    const batch_res = await Promise.all(proms);
+    resultados.push(...batch_res);
+  }
+
+  const conPrecio = resultados.filter(r => r.precio !== null);
+  console.log(`[VIABILIDAD] Precios encontrados: ${conPrecio.length}/${resultados.length}`);
+
+  if (conPrecio.length === 0) return null;
+
+  const precios = conPrecio.map(r => r.precio).sort((a, b) => a - b);
+  const min     = precios[0];
+  const max     = precios[precios.length - 1];
+  const media   = Math.round((precios.reduce((s, p) => s + p, 0) / precios.length) * 100) / 100;
+
+  const fmt = (p) => `${p.toFixed(2).replace('.', ',')} ${currency}`;
+
+  return {
+    landings_analizadas: resultados.length,
+    landings_con_precio: conPrecio.length,
+    precio_minimo:  min,
+    precio_medio:   media,
+    precio_maximo:  max,
+    precio_minimo_fmt:  fmt(min),
+    precio_medio_fmt:   fmt(media),
+    precio_maximo_fmt:  fmt(max),
+    detalle: conPrecio.map(r => ({ domain: r.domain, url: r.url, precio: r.precio, precio_fmt: fmt(r.precio) })),
+  };
+}
+
+// ── POST /viabilidad — Endpoint principal de Viabilidad Económica ─────────────
+app.post('/viabilidad', async (req, res) => {
+  const {
+    product_name,
+    meta_keyword,
+    trends_keyword,
+    country = 'ES',
+    days = 7,
+  } = req.body || {};
+
+  if (!product_name) return res.status(400).json({ error: 'Falta el campo "product_name"' });
+  if (!meta_keyword && !trends_keyword) return res.status(400).json({ error: 'Falta al menos meta_keyword o trends_keyword' });
+
+  const cfg = COUNTRY_CONFIG[country];
+  if (!cfg) return res.status(400).json({ error: `País no soportado: "${country}". Usa: ${Object.keys(COUNTRY_CONFIG).join(', ')}` });
+
+  try {
+    // 1. Decidir qué keyword usar
+    // Si viene trends_keyword → ya está en el idioma correcto, usarla directamente
+    // Si no → usar meta_keyword y traducirla al idioma del país
+    let keywordFinal;
+    let keywordSource;
+
+    if (trends_keyword) {
+      keywordFinal  = trends_keyword;
+      keywordSource = 'trends_keyword (ya en idioma local)';
+    } else {
+      keywordFinal  = await traducirKeyword(meta_keyword, country);
+      keywordSource = `meta_keyword traducida de "${meta_keyword}"`;
+    }
+
+    console.log(`[VIABILIDAD] "${product_name}" | País: ${cfg.name} | Keyword: "${keywordFinal}" | Fuente: ${keywordSource}`);
+
+    // 2. Búsqueda en Meta Ads Library en tiempo real
+    const ads = await scrapeMetaAdsLive(keywordFinal, country, days);
+
+    if (!ads || ads.length === 0) {
+      return res.json({
+        success: true,
+        product_name,
+        country,
+        country_name: cfg.name,
+        keyword_usada: keywordFinal,
+        keyword_source: keywordSource,
+        anuncios_encontrados: 0,
+        landings_validas: 0,
+        precios: null,
+        resumen: `No se encontraron anuncios activos en ${cfg.name} para "${keywordFinal}" en los últimos ${days} días.`,
+      });
+    }
+
+    // 3. Extraer landing pages y precios
+    const precios = await extraerPrecios(ads, cfg.currency);
+
+    // 4. Construir respuesta
+    const resumen = precios
+      ? `Precio mínimo: ${precios.precio_minimo_fmt} / Precio medio: ${precios.precio_medio_fmt} / Precio máximo: ${precios.precio_maximo_fmt}`
+      : `Se encontraron ${ads.length} anuncios pero no se pudo extraer precio de ninguna landing.`;
+
+    res.json({
+      success: true,
+      product_name,
+      country,
+      country_name: cfg.name,
+      keyword_usada: keywordFinal,
+      keyword_source: keywordSource,
+      ventana_dias: days,
+      anuncios_encontrados: ads.length,
+      landings_validas: precios?.landings_con_precio || 0,
+      precios,
+      resumen,
+    });
+
+  } catch(e) {
+    console.error('[VIABILIDAD ERROR]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.use(require("express").static(require("path").join(__dirname)));
+app.get("/", (req, res) => {
+  res.sendFile(require("path").join(__dirname, "meta-validator.html"));
 });
 app.listen(PORT, () => {
   console.log(`[META VALIDATOR] v1.0 corriendo en puerto ${PORT}`);
   console.log(`[META VALIDATOR] Actor: ${META_ACTOR} | Max ads: ${MAX_ADS}`);
   console.log(`[META VALIDATOR] Productos cargados: ${PRODUCTOS_TIKTOK.length}`);
+  console.log(`[META VALIDATOR] Capa Viabilidad activa | Países: ${Object.keys(COUNTRY_CONFIG).join(", ")}`);
 });
