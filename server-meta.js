@@ -775,6 +775,117 @@ async function scrapeMetaAdsLive(keyword, country, days = 7) {
   throw new Error('Timeout esperando resultados del actor Apify (>3 min)');
 }
 
+// Función interna: scraping de precio en una página, con opción de seguir CTA
+async function _scrapearPrecioEnPagina(browser, url, seguirCTA = false) {
+  const page = await browser.newPage();
+  try {
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36');
+    await page.setDefaultTimeout(20000);
+
+    // Bloquear imágenes/fuentes para ir más rápido (pero NO CSS ni JS — necesarios para Shopify)
+    await page.setRequestInterception(true);
+    page.on('request', req => {
+      if (['image', 'font', 'media'].includes(req.resourceType())) {
+        req.abort();
+      } else {
+        req.continue();
+      }
+    });
+
+    // Esperar a que el JS cargue el DOM completo (clave para Shopify)
+    await page.goto(url, { waitUntil: 'networkidle2', timeout: 20000 });
+
+    // Intentar extraer precio
+    const precio = await _extraerPrecioDelDOM(page);
+    if (precio !== null) return precio;
+
+    // Si no hay precio y está permitido seguir CTA → buscar enlace a /products/
+    if (seguirCTA) {
+      const productoUrl = await page.evaluate(() => {
+        const links = Array.from(document.querySelectorAll('a[href]'));
+        const prod = links.find(a => a.href.includes('/products/'));
+        return prod ? prod.href : null;
+      });
+
+      if (productoUrl && productoUrl !== url) {
+        console.log(`[VIABILIDAD] Siguiendo CTA a producto: ${productoUrl.substring(0, 80)}`);
+        await page.goto(productoUrl, { waitUntil: 'networkidle2', timeout: 20000 });
+        return await _extraerPrecioDelDOM(page);
+      }
+    }
+
+    return null;
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+// Función interna: extraer precio del DOM actual
+async function _extraerPrecioDelDOM(page) {
+  return await page.evaluate(() => {
+    // E1: Shopify metafield og:price
+    const ogPrice = document.querySelector('meta[property="og:price:amount"]')?.getAttribute('content');
+    if (ogPrice && !isNaN(parseFloat(ogPrice))) return parseFloat(ogPrice);
+
+    // E2: JSON-LD schema.org/Product
+    const jsonLds = document.querySelectorAll('script[type="application/ld+json"]');
+    for (const el of jsonLds) {
+      try {
+        const data = JSON.parse(el.textContent);
+        const objs = Array.isArray(data) ? data : [data];
+        for (const obj of objs) {
+          const price = obj?.offers?.price || obj?.offers?.[0]?.price
+                      || obj?.price || obj?.priceRange?.minVariantPrice?.amount;
+          if (price && !isNaN(parseFloat(price))) return parseFloat(price);
+        }
+      } catch(e) {}
+    }
+
+    // E3: Shopify window.__st / ShopifyAnalytics con datos de producto
+    try {
+      const scripts = document.querySelectorAll('script:not([src])');
+      for (const s of scripts) {
+        const m = s.textContent.match(/"price"\s*:\s*(\d+)/);
+        if (m) {
+          const cents = parseInt(m[1]);
+          if (cents > 0 && cents < 1000000) return cents / 100;
+        }
+      }
+    } catch(e) {}
+
+    // E4: Selectores CSS comunes Shopify/WooCommerce
+    const selectors = [
+      '[data-product-price]', '.price-item--sale', '.price-item--regular',
+      '.product__price .price', '.product__price',
+      '.price .money', '.product-price .money',
+      '.woocommerce-Price-amount bdi',
+      '[itemprop="price"]', '.price',
+    ];
+    for (const sel of selectors) {
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      const raw = el.getAttribute('content') || el.getAttribute('data-product-price') || el.textContent;
+      const match = raw?.match(/\d{1,4}[.,]\d{2}/);
+      if (match) {
+        const num = parseFloat(match[0].replace(',', '.'));
+        if (!isNaN(num) && num > 0 && num < 10000) return num;
+      }
+    }
+
+    // E5: Regex sobre el texto visible (último recurso)
+    const bodyText = document.body?.innerText || '';
+    const matches = bodyText.match(/(?:€|£|\$)\s?\d{1,4}[.,]\d{2}|\d{1,4}[.,]\d{2}\s?(?:€|£|\$)/g);
+    if (matches) {
+      const prices = matches
+        .map(m => parseFloat(m.replace(/[^0-9.,]/g, '').replace(',', '.')))
+        .filter(p => !isNaN(p) && p > 1 && p < 5000);
+      if (prices.length > 0) return Math.min(...prices);
+    }
+
+    return null;
+  });
+}
+
 // Extraer precio de una landing page usando Puppeteer
 async function extraerPrecioDeLanding(url) {
   if (!url || !url.startsWith('http')) return null;
@@ -786,71 +897,8 @@ async function extraerPrecioDeLanding(url) {
       headless: 'new',
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     });
-    const page = await browser.newPage();
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36');
-    await page.setDefaultTimeout(15000);
 
-    // Bloquear imágenes/CSS para ir más rápido
-    await page.setRequestInterception(true);
-    page.on('request', req => {
-      if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
-        req.abort();
-      } else {
-        req.continue();
-      }
-    });
-
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
-
-    // Buscar precios en el DOM con múltiples estrategias
-    const precio = await page.evaluate(() => {
-      // Estrategia 1: metadatos de precio estructurado (Shopify, WooCommerce)
-      const ogPrice = document.querySelector('meta[property="og:price:amount"]')?.getAttribute('content');
-      if (ogPrice && !isNaN(parseFloat(ogPrice))) return parseFloat(ogPrice);
-
-      // Estrategia 2: JSON-LD (schema.org/Product)
-      const jsonLds = document.querySelectorAll('script[type="application/ld+json"]');
-      for (const el of jsonLds) {
-        try {
-          const data = JSON.parse(el.textContent);
-          const price = data?.offers?.price || data?.offers?.[0]?.price;
-          if (price && !isNaN(parseFloat(price))) return parseFloat(price);
-        } catch(e) {}
-      }
-
-      // Estrategia 3: selectores comunes de precio en Shopify/WooCommerce
-      const selectors = [
-        '.price .money', '.product__price .money', '[data-product-price]',
-        '.woocommerce-Price-amount', '.price-item--regular',
-        '.product-price__price', '[class*="price"][class*="sale"]',
-        '.price', '[itemprop="price"]', '[class*="Price"]',
-      ];
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el) {
-          const text = el.getAttribute('content') || el.textContent;
-          const match = text?.match(/[\d]+[.,][\d]{2}/);
-          if (match) {
-            const num = parseFloat(match[0].replace(',', '.'));
-            if (!isNaN(num) && num > 0 && num < 10000) return num;
-          }
-        }
-      }
-
-      // Estrategia 4: regex sobre todo el texto de la página (último recurso)
-      const bodyText = document.body?.innerText || '';
-      // Busca patrones tipo "€29,99" o "$19.99" o "29.99€"
-      const matches = bodyText.match(/(?:€|£|\$|USD|EUR)\s?(\d{1,4}[.,]\d{2})|(\d{1,4}[.,]\d{2})\s?(?:€|£|\$)/g);
-      if (matches && matches.length > 0) {
-        const prices = matches
-          .map(m => parseFloat(m.replace(/[^0-9.,]/g, '').replace(',', '.')))
-          .filter(p => !isNaN(p) && p > 0 && p < 10000);
-        if (prices.length > 0) return Math.min(...prices); // precio más bajo encontrado
-      }
-
-      return null;
-    });
-
+    const precio = await _scrapearPrecioEnPagina(browser, url, true);
     return precio;
   } catch(e) {
     console.warn(`[VIABILIDAD] Error scraping ${url}: ${e.message}`);
