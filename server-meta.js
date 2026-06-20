@@ -938,6 +938,8 @@ const DOMINIOS_EXCLUIDOS = new Set([
   'shein.com', 'zalando.es', 'zalando.de', 'zalando.fr', 'pccomponentes.com',
   'mediamarkt.es', 'elcorteingles.es', 'carrefour.es', 'fnac.es',
   'play.google.com', 'apps.apple.com', 'facebook.com', 'instagram.com',
+  'alibaba.com', 'walmart.com', 'walmart.es', 'target.com', 'etsy.com',
+  'rakuten.com', 'rakuten.es', 'jd.com',
 ]);
 
 // Extraer landing pages únicas de los anuncios y scraping de precios
