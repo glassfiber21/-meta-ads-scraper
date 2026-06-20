@@ -689,27 +689,39 @@ Respond ONLY with a JSON object, no markdown:
   }
 }
 
-// Llamada REAL al actor de Apify con keyword + país + ventana temporal
+// Llamada REAL al actor de Apify con keyword + país
+// Actor: whoareyouanas/meta-ad-scraper — soporta filtro real por país
+const VIABILIDAD_ACTOR = 'whoareyouanas~meta-ad-scraper';
+
+// Mapa país → idioma ISO 639-1 para filtrar por contentLanguages
+const COUNTRY_LANG = {
+  ES: 'es', DE: 'de', FR: 'fr', IT: 'it',
+  PT: 'pt', NL: 'nl', BE: 'nl', PL: 'pl',
+  UK: 'en', US: 'en',
+};
+
 async function scrapeMetaAdsLive(keyword, country, days = 7) {
   if (!APIFY_API_KEY) throw new Error('APIFY_API_KEY no configurada');
 
-  const sinceDate = new Date();
-  sinceDate.setDate(sinceDate.getDate() - days);
-  const sinceDateStr = sinceDate.toISOString().split('T')[0]; // YYYY-MM-DD
+  const lang = COUNTRY_LANG[country] || 'en';
 
-  console.log(`[VIABILIDAD] Lanzando actor Apify: keyword="${keyword}" country="${country}" desde=${sinceDateStr}`);
+  console.log(`[VIABILIDAD] Lanzando actor ${VIABILIDAD_ACTOR}: keyword="${keyword}" country="${country}" lang="${lang}"`);
 
-  // Lanzar el actor
-  const runRes = await fetch(`https://api.apify.com/v2/acts/${META_ACTOR}/runs?token=${APIFY_API_KEY}`, {
+  // Lanzar el actor con parámetros correctos
+  const runRes = await fetch(`https://api.apify.com/v2/acts/${VIABILIDAD_ACTOR}/runs?token=${APIFY_API_KEY}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      searchTerms: [keyword],
-      country: country,
-      activeStatus: 'ACTIVE',
-      adType: 'ALL',
-      startDateMin: sinceDateStr,
-      maxResults: 30,
+      searchQuery:       keyword,
+      country:           country,
+      activeStatus:      'active',
+      adType:            'all',
+      mediaType:         'all',
+      isTargetedCountry: true,
+      contentLanguages:  [lang],
+      sortMode:          'total_impressions',
+      sortDirection:     'desc',
+      maxConcurrency:    1,
     }),
   });
 
@@ -844,7 +856,7 @@ async function extraerPrecios(ads, currency) {
   // Recopilar landing pages únicas con link_url
   const landingMap = new Map(); // domain → url (una por dominio)
   for (const ad of ads) {
-    const url = ad.ad_content?.link_url || ad.link_url;
+    const url = ad.linkUrl || ad.ctaUrl || ad.ad_content?.link_url || ad.link_url;
     if (!url || !url.startsWith('http')) continue;
     try {
       const domain = new URL(url).hostname.replace(/^www\./, '');
