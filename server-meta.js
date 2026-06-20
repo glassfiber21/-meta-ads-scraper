@@ -645,23 +645,33 @@ const COUNTRY_CONFIG = {
   PL: { currency: 'zł', name: 'Polonia',  locale: 'pl' },
 };
 
-// Traducir/adaptar la keyword al idioma del país objetivo usando Claude
-async function traducirKeyword(keyword, country) {
+// Generar keyword comercial precisa en el idioma del país objetivo usando Claude
+async function traducirKeyword(keyword, country, productName = '') {
   const cfg = COUNTRY_CONFIG[country];
-  if (!cfg || cfg.locale === 'en') return keyword; // inglés → no traducir
+  if (!cfg || cfg.locale === 'en') return keyword;
 
-  const prompt = `You are an expert in dropshipping and Meta Ads.
-Translate the following product search keyword to ${cfg.name} (language: ${cfg.locale}), adapting it to what a LOCAL buyer or local advertiser would search for on Meta Ads Library.
-Do NOT over-translate generic terms — keep the most effective commercial phrasing.
+  const prompt = `You are a dropshipping expert specializing in Meta Ads competitive research.
 
-Original keyword (English): "${keyword}"
-Target country: ${cfg.name}
-Target language: ${cfg.locale}
+Your task: generate the BEST search keyword to find competitors selling this product on Meta Ads Library in ${cfg.name}.
+
+Product context:
+- Product name: "${productName || keyword}"
+- Original Meta Ads keyword used in USA: "${keyword}"
+- Target country: ${cfg.name}
+- Target language: ${cfg.locale}
+
+Rules:
+1. Think about what the PRODUCT actually IS physically — its key feature, what makes it unique
+2. Generate the keyword a LOCAL advertiser in ${cfg.name} would use when running Meta Ads for this exact product
+3. Use ${cfg.locale} language
+4. Be SPECIFIC to the product type — avoid generic terms that would return unrelated results
+5. 2-4 words maximum — shorter is better for Meta Ads search
+6. Do NOT literally translate — think commercially
 
 Respond ONLY with a JSON object, no markdown:
 {
-  "translated_keyword": "the translated keyword",
-  "reasoning": "brief reason"
+  "keyword": "the best keyword in ${cfg.locale}",
+  "reasoning": "why this keyword is the most precise for this product in ${cfg.name}"
 }`;
 
   try {
@@ -674,18 +684,18 @@ Respond ONLY with a JSON object, no markdown:
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 150,
+        max_tokens: 200,
         messages: [{ role: 'user', content: prompt }],
       }),
     });
     const data = await res.json();
     const text = (data.content?.[0]?.text || '').trim().replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(text);
-    console.log(`[VIABILIDAD] Keyword traducida: "${keyword}" → "${parsed.translated_keyword}" (${cfg.name})`);
-    return parsed.translated_keyword;
+    console.log(`[VIABILIDAD] Keyword generada: "${keyword}" → "${parsed.keyword}" (${cfg.name}) | ${parsed.reasoning}`);
+    return parsed.keyword;
   } catch(e) {
-    console.error('[VIABILIDAD] Error traduciendo keyword:', e.message);
-    return keyword; // fallback: usar original
+    console.error('[VIABILIDAD] Error generando keyword:', e.message);
+    return keyword;
   }
 }
 
@@ -856,9 +866,11 @@ async function extraerPrecios(ads, currency) {
   // Recopilar landing pages únicas con link_url
   const landingMap = new Map(); // domain → url (una por dominio)
   for (const ad of ads) {
-    const url = ad.linkUrl || ad.ctaUrl || ad.ad_content?.link_url || ad.link_url;
-    if (!url || !url.startsWith('http')) continue;
+    const rawUrl = ad.linkUrl || ad.ctaUrl || ad.ad_content?.link_url || ad.link_url;
+    if (!rawUrl || !rawUrl.startsWith('http')) continue;
     try {
+      // Limpiar tokens de tracking de Facebook (&h=xxx) que rompen la URL
+      const url = rawUrl.split('&h=')[0].split('?h=')[0];
       const domain = new URL(url).hostname.replace(/^www\./, '');
       if (!landingMap.has(domain)) landingMap.set(domain, url);
     } catch(e) {}
@@ -932,7 +944,7 @@ app.post('/viabilidad', async (req, res) => {
       keywordFinal  = trends_keyword;
       keywordSource = 'trends_keyword (ya en idioma local)';
     } else {
-      keywordFinal  = await traducirKeyword(meta_keyword, country);
+      keywordFinal  = await traducirKeyword(meta_keyword, country, product_name);
       keywordSource = `meta_keyword traducida de "${meta_keyword}"`;
     }
 
