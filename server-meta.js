@@ -768,10 +768,32 @@ async function scrapeMetaAdsLive(keyword, country, days = 7) {
     }
 
     if (['FAILED', 'ABORTED', 'TIMED-OUT'].includes(status)) {
-      throw new Error(`Actor Apify terminó con status: ${status}`);
+      // Intentar recuperar datos parciales del dataset aunque el run se haya abortado
+      const datasetId = statusData.data?.defaultDatasetId;
+      if (datasetId) {
+        const itemsRes = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${APIFY_API_KEY}&limit=50`);
+        const items = await itemsRes.json();
+        if (Array.isArray(items) && items.length > 0) {
+          console.log(`[VIABILIDAD] Run ${status} pero recuperados ${items.length} anuncios parciales del dataset`);
+          return items;
+        }
+      }
+      throw new Error(`Actor Apify terminó con status: ${status} y sin datos recuperables`);
     }
   }
 
+  // Timeout propio: intentar recuperar datos parciales también
+  const statusRes2 = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${APIFY_API_KEY}`);
+  const statusData2 = await statusRes2.json();
+  const datasetId2 = statusData2.data?.defaultDatasetId;
+  if (datasetId2) {
+    const itemsRes2 = await fetch(`https://api.apify.com/v2/datasets/${datasetId2}/items?token=${APIFY_API_KEY}&limit=50`);
+    const items2 = await itemsRes2.json();
+    if (Array.isArray(items2) && items2.length > 0) {
+      console.log(`[VIABILIDAD] Timeout propio pero recuperados ${items2.length} anuncios parciales`);
+      return items2;
+    }
+  }
   throw new Error('Timeout esperando resultados del actor Apify (>3 min)');
 }
 
@@ -908,6 +930,16 @@ async function extraerPrecioDeLanding(url) {
   }
 }
 
+// Marketplaces y plataformas que NO son competencia real de dropshipping
+const DOMINIOS_EXCLUIDOS = new Set([
+  'temu.com', 'aliexpress.com', 'amazon.com', 'amazon.es', 'amazon.de',
+  'amazon.fr', 'amazon.it', 'amazon.co.uk', 'ebay.com', 'ebay.es',
+  'ebay.de', 'ebay.fr', 'ebay.co.uk', 'aliexpress.es', 'wish.com',
+  'shein.com', 'zalando.es', 'zalando.de', 'zalando.fr', 'pccomponentes.com',
+  'mediamarkt.es', 'elcorteingles.es', 'carrefour.es', 'fnac.es',
+  'play.google.com', 'apps.apple.com', 'facebook.com', 'instagram.com',
+]);
+
 // Extraer landing pages únicas de los anuncios y scraping de precios
 async function extraerPrecios(ads, currency) {
   // Recopilar landing pages únicas con link_url
@@ -919,6 +951,10 @@ async function extraerPrecios(ads, currency) {
       // Limpiar tokens de tracking de Facebook (&h=xxx) que rompen la URL
       const url = rawUrl.split('&h=')[0].split('?h=')[0];
       const domain = new URL(url).hostname.replace(/^www\./, '');
+      if (DOMINIOS_EXCLUIDOS.has(domain)) {
+        console.log(`[VIABILIDAD] Excluido marketplace: ${domain}`);
+        continue;
+      }
       if (!landingMap.has(domain)) landingMap.set(domain, url);
     } catch(e) {}
   }
