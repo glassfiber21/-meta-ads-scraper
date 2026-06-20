@@ -713,25 +713,23 @@ const COUNTRY_LANG = {
 async function scrapeMetaAdsLive(keyword, country, days = 7) {
   if (!APIFY_API_KEY) throw new Error('APIFY_API_KEY no configurada');
 
+  // Construir URL directa de Meta Ads Library con todos los filtros
+  // Usar targetUrl en vez de parámetros sueltos — el actor dedica todo el tiempo a hacer scroll
   const lang = COUNTRY_LANG[country] || 'en';
+  const encodedKeyword = encodeURIComponent(keyword);
+  const targetUrl = `https://www.facebook.com/ads/library/?country=${country}&active_status=active&ad_type=all&media_type=all&is_targeted_country=true&q=${encodedKeyword}&search_type=keyword_unordered&content_languages%5B0%5D=${lang}&sort_data%5Bmode%5D=total_impressions&sort_data%5Bdirection%5D=desc`;
 
-  console.log(`[VIABILIDAD] Lanzando actor ${VIABILIDAD_ACTOR}: keyword="${keyword}" country="${country}" lang="${lang}"`);
+  console.log(`[VIABILIDAD] Lanzando actor ${VIABILIDAD_ACTOR}: keyword="${keyword}" country="${country}"`);
+  console.log(`[VIABILIDAD] URL: ${targetUrl}`);
 
-  // Lanzar el actor con parámetros correctos
+  // Lanzar el actor con URL directa y timeout generoso
   const runRes = await fetch(`https://api.apify.com/v2/acts/${VIABILIDAD_ACTOR}/runs?token=${APIFY_API_KEY}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      searchQuery:       keyword,
-      country:           country,
-      activeStatus:      'active',
-      adType:            'all',
-      mediaType:         'all',
-      isTargetedCountry: true,
-      contentLanguages:  [lang],
-      sortMode:          'total_impressions',
-      sortDirection:     'desc',
-      maxConcurrency:    1,
+      targetUrl,
+      requestHandlerTimeoutSecs: 120,
+      maxConcurrency: 1,
     }),
   });
 
