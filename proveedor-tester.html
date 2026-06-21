@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Análisis de Proveedores</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #1a1a1a; padding: 2rem; }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
+  .subtitle { font-size: 14px; color: #666; margin-bottom: 2rem; }
+  .card { background: white; border-radius: 12px; border: 1px solid #e5e5e5; padding: 1.5rem; margin-bottom: 1.5rem; }
+  label { display: block; font-size: 13px; font-weight: 500; color: #444; margin-bottom: 6px; margin-top: 14px; }
+  label:first-of-type { margin-top: 0; }
+  input { width: 100%; padding: 9px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; color: #1a1a1a; background: white; }
+  input:focus { outline: none; border-color: #555; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  button { margin-top: 1.5rem; width: 100%; padding: 12px; background: #1a1a1a; color: white; border: none; border-radius: 8px; font-size: 15px; font-weight: 500; cursor: pointer; }
+  button:hover { background: #333; }
+  button:disabled { background: #999; cursor: not-allowed; }
+  .status { margin-top: 1rem; padding: 12px 16px; border-radius: 8px; font-size: 14px; display: none; }
+  .status.loading { background: #EAF3DE; color: #3B6D11; display: block; }
+  .status.error { background: #FCEBEB; color: #A32D2D; display: block; }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #3B6D11; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .resumen-card { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
+  .veredicto { font-size: 22px; font-weight: 600; margin-bottom: 12px; }
+  .metricas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; }
+  .metrica { background: white; border-radius: 8px; padding: 12px; text-align: center; border: 1px solid #e5e5e5; }
+  .metrica-label { font-size: 11px; color: #888; margin-bottom: 4px; }
+  .metrica-valor { font-size: 20px; font-weight: 600; }
+  .metrica-sub { font-size: 12px; color: #666; margin-top: 2px; }
+
+  .proveedor-section { margin-bottom: 1.5rem; }
+  .proveedor-title { font-size: 15px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .badge-plat { font-size: 11px; padding: 3px 8px; border-radius: 4px; font-weight: 500; }
+  .badge-ali { background: #fff0e6; color: #cc4400; }
+  .badge-alibaba { background: #fff7e6; color: #b36a00; }
+  .badge-cj { background: #e6f0ff; color: #0044cc; }
+
+  .producto-card { border: 1px solid #e5e5e5; border-radius: 8px; padding: 12px; margin-bottom: 8px; background: white; }
+  .producto-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .producto-titulo { font-size: 13px; color: #333; flex: 1; line-height: 1.4; }
+  .producto-precio { font-size: 18px; font-weight: 600; color: #1a1a1a; white-space: nowrap; }
+  .producto-meta { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 4px; }
+  .pill-green { background: #EAF3DE; color: #3B6D11; }
+  .pill-red { background: #FCEBEB; color: #A32D2D; }
+  .pill-gray { background: #f5f5f5; color: #666; }
+  .pill-orange { background: #FFF3E0; color: #E65100; }
+  .producto-link { font-size: 11px; color: #185FA5; text-decoration: none; margin-top: 6px; display: inline-block; }
+  .no-data { color: #aaa; font-size: 13px; font-style: italic; padding: 12px 0; }
+
+  .mejor-badge { background: #1a1a1a; color: white; font-size: 11px; padding: 2px 8px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<h1>Análisis de Proveedores</h1>
+<p class="subtitle">Busca el producto en AliExpress, Alibaba y CJDropshipping y calcula el margen de rentabilidad.</p>
+
+<div class="card">
+  <label>Nombre del producto</label>
+  <input type="text" id="product_name" value="Interactive Pet Ball" placeholder="ej. Interactive Pet Ball">
+
+  <label>Keyword de búsqueda (en inglés)</label>
+  <input type="text" id="keyword" value="smart dog ball interactive" placeholder="ej. smart dog ball interactive">
+
+  <label>Precio de venta en España (€) <span style="color:#aaa;font-weight:400">— de la capa Viabilidad</span></label>
+  <input type="number" id="precio_venta_es" value="26" step="0.01" placeholder="ej. 26.00">
+
+  <button id="btn" onclick="lanzar()">Buscar proveedores y calcular margen</button>
+  <div class="status" id="status"></div>
+</div>
+
+<div id="resultado"></div>
+
+<script>
+async function lanzar() {
+  const btn    = document.getElementById('btn');
+  const status = document.getElementById('status');
+  const result = document.getElementById('resultado');
+
+  const body = {
+    product_name:    document.getElementById('product_name').value.trim(),
+    keyword:         document.getElementById('keyword').value.trim(),
+    precio_venta_es: parseFloat(document.getElementById('precio_venta_es').value) || null,
+  };
+
+  if (!body.keyword) {
+    status.className = 'status error';
+    status.textContent = 'Rellena la keyword de búsqueda.';
+    return;
+  }
+
+  btn.disabled = true;
+  result.innerHTML = '';
+  status.className = 'status loading';
+  status.innerHTML = '<span class="spinner"></span>Scrapeando AliExpress, Alibaba y CJDropshipping en paralelo... puede tardar 1-2 minutos.';
+
+  const start = Date.now();
+
+  try {
+    const res  = await fetch('/proveedor', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    });
+    const data = await res.json();
+    const elapsed = ((Date.now() - start) / 1000).toFixed(0);
+
+    if (!res.ok || data.error) throw new Error(data.error || 'Error del servidor');
+
+    status.style.display = 'none';
+    result.innerHTML = renderResultado(data, elapsed);
+
+  } catch(e) {
+    status.className = 'status error';
+    status.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function fmt(p, suffix = ' €') {
+  if (p === null || p === undefined) return '—';
+  return p.toFixed(2).replace('.', ',') + suffix;
+}
+
+function ratingPill(rating, ok) {
+  if (rating === null || rating === undefined) return '<span class="pill pill-gray">Sin rating</span>';
+  const cls = ok === true ? 'pill-green' : ok === false ? 'pill-red' : 'pill-gray';
+  return `<span class="pill ${cls}">⭐ ${rating}</span>`;
+}
+
+function renderProducto(item, esMejor) {
+  const esAlibaba = item.plataforma === 'alibaba';
+  const precio = esAlibaba
+    ? `${fmt(item.precio_min)} – ${fmt(item.precio_max)}`
+    : fmt(item.precio);
+
+  const moqPill = esAlibaba && item.moq
+    ? `<span class="pill pill-orange">MOQ: ${item.moq} uds</span>`
+    : '';
+
+  const envio = item.envioGratis === true
+    ? '<span class="pill pill-green">Envío gratis</span>'
+    : item.envioGratis === false
+    ? '<span class="pill pill-gray">Envío de pago</span>'
+    : '';
+
+  const tiempo = item.tiempoEnvio ? `<span class="pill pill-gray">${item.tiempoEnvio}</span>` : '';
+  const anos   = item.anos_proveedor ? `<span class="pill pill-gray">${item.anos_proveedor} años en plataforma</span>` : '';
+  const mejorBadge = esMejor ? '<span class="mejor-badge">⭐ Mejor precio</span>' : '';
+
+  const ratingKey = item.rating ?? item.rating_proveedor ?? null;
+  const ratingOkVal = item.rating_ok;
+
+  return `<div class="producto-card">
+    <div class="producto-header">
+      <div class="producto-titulo">${item.titulo || '—'} ${mejorBadge}</div>
+      <div class="producto-precio">${precio}</div>
+    </div>
+    <div class="producto-meta">
+      ${ratingPill(ratingKey, ratingOkVal)}
+      ${envio}
+      ${tiempo}
+      ${moqPill}
+      ${anos}
+      ${item.ordenes ? `<span class="pill pill-gray">${item.ordenes.toLocaleString()} órdenes</span>` : ''}
+    </div>
+    ${item.url ? `<a class="producto-link" href="${item.url}" target="_blank">Ver en ${item.fuente || item.plataforma} →</a>` : ''}
+  </div>`;
+}
+
+function renderSeccion(titulo, items, badgeClass, badgeLabel, mejorUrl) {
+  let html = `<div class="proveedor-section">
+    <div class="proveedor-title">
+      ${titulo}
+      <span class="badge-plat ${badgeClass}">${badgeLabel}</span>
+    </div>`;
+
+  if (!items || items.length === 0) {
+    html += '<div class="no-data">No se encontraron resultados.</div>';
+  } else {
+    items.forEach((item, i) => {
+      const esMejor = i === 0 && item.url === mejorUrl;
+      html += renderProducto(item, esMejor);
+    });
+  }
+
+  html += '</div>';
+  return html;
+}
+
+function renderResultado(d, elapsed) {
+  const r = d.resumen;
+  const mejor = r.mejor_opcion;
+  const mejorUrl = mejor?.url || '';
+
+  const margenColor = r.margen_bruto_pct >= 70 ? '#3B6D11' : r.margen_bruto_pct >= 50 ? '#BA7517' : '#A32D2D';
+
+  let html = `<div class="resumen-card">
+    <div class="veredicto">${r.veredicto}</div>
+    <div style="font-size:13px;color:#555;margin-bottom:8px">
+      Mejor proveedor: <strong>${mejor?.fuente || '—'}</strong>
+      ${mejor ? `· "${mejor.titulo?.substring(0, 60)}..."` : ''}
+    </div>
+    <div class="metricas">
+      <div class="metrica">
+        <div class="metrica-label">Precio venta ES</div>
+        <div class="metrica-valor">${fmt(d.precio_venta_es)}</div>
+      </div>
+      <div class="metrica">
+        <div class="metrica-label">Coste proveedor</div>
+        <div class="metrica-valor">${fmt(r.coste_minimo)}</div>
+        <div class="metrica-sub">${r.proveedor_mas_barato || ''}</div>
+      </div>
+      <div class="metrica">
+        <div class="metrica-label">Margen bruto</div>
+        <div class="metrica-valor" style="color:${margenColor}">${r.margen_bruto_pct !== null ? r.margen_bruto_pct + '%' : '—'}</div>
+      </div>
+    </div>
+    <div style="font-size:12px;color:#888;margin-top:12px">Tiempo de análisis: ${elapsed}s · Rating válido: ${r.criterios_calidad.rating_producto_min}–${r.criterios_calidad.rating_producto_max}</div>
+  </div>`;
+
+  const p = d.proveedores;
+  html += '<div class="card">';
+  html += renderSeccion('AliExpress', p.aliexpress, 'badge-ali', 'AliExpress', mejorUrl);
+  html += renderSeccion('Alibaba', p.alibaba, 'badge-alibaba', 'Alibaba (MOQ)', mejorUrl);
+  html += renderSeccion('CJDropshipping', p.cjdropshipping, 'badge-cj', 'CJDropshipping', mejorUrl);
+  html += '</div>';
+
+  return html;
+}
+</script>
+</body>
+</html>
