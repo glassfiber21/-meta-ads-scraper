@@ -6,10 +6,11 @@
 <title>Análisis de Proveedores</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #1a1a1a; padding: 2rem; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #1a1a1a; padding: 2rem; max-width: 900px; margin: 0 auto; }
   h1 { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
   .subtitle { font-size: 14px; color: #666; margin-bottom: 2rem; }
-  .card { background: white; border-radius: 12px; border: 1px solid #e5e5e5; padding: 1.5rem; margin-bottom: 1.5rem; }
+
+  .input-card { background: white; border-radius: 12px; border: 1px solid #e5e5e5; padding: 1.5rem; margin-bottom: 1.5rem; }
   label { display: block; font-size: 13px; font-weight: 500; color: #444; margin-bottom: 6px; margin-top: 14px; }
   label:first-of-type { margin-top: 0; }
   input { width: 100%; padding: 9px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; color: #1a1a1a; background: white; }
@@ -24,51 +25,79 @@
   .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #3B6D11; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .resumen-card { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
-  .veredicto { font-size: 22px; font-weight: 600; margin-bottom: 12px; }
-  .metricas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; }
-  .metrica { background: white; border-radius: 8px; padding: 12px; text-align: center; border: 1px solid #e5e5e5; }
-  .metrica-label { font-size: 11px; color: #888; margin-bottom: 4px; }
-  .metrica-valor { font-size: 20px; font-weight: 600; }
-  .metrica-sub { font-size: 12px; color: #666; margin-top: 2px; }
+  /* Resumen final */
+  .resumen { background: white; border-radius: 12px; border: 1px solid #e5e5e5; padding: 1.5rem; margin-bottom: 1.5rem; }
+  .veredicto-banner { border-radius: 8px; padding: 14px 18px; font-size: 18px; font-weight: 600; margin-bottom: 1.2rem; }
+  .veredicto-verde { background: #EAF3DE; color: #27500A; }
+  .veredicto-amarillo { background: #FAEEDA; color: #633806; }
+  .veredicto-rojo { background: #FCEBEB; color: #791F1F; }
 
-  .proveedor-section { margin-bottom: 1.5rem; }
-  .proveedor-title { font-size: 15px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
-  .badge-plat { font-size: 11px; padding: 3px 8px; border-radius: 4px; font-weight: 500; }
-  .badge-ali { background: #fff0e6; color: #cc4400; }
-  .badge-alibaba { background: #fff7e6; color: #b36a00; }
-  .badge-cj { background: #e6f0ff; color: #0044cc; }
+  .resumen-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .resumen-item { background: #f9f9f9; border-radius: 8px; padding: 12px; text-align: center; }
+  .resumen-label { font-size: 11px; color: #888; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .resumen-valor { font-size: 20px; font-weight: 600; }
+  .resumen-sub { font-size: 11px; color: #999; margin-top: 3px; }
+  .verde { color: #27500A; }
+  .amarillo { color: #854F0B; }
+  .rojo { color: #A32D2D; }
 
-  .producto-card { border: 1px solid #e5e5e5; border-radius: 8px; padding: 12px; margin-bottom: 8px; background: white; }
-  .producto-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-  .producto-titulo { font-size: 13px; color: #333; flex: 1; line-height: 1.4; }
-  .producto-precio { font-size: 18px; font-weight: 600; color: #1a1a1a; white-space: nowrap; }
-  .producto-meta { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-  .pill { font-size: 11px; padding: 2px 8px; border-radius: 4px; }
-  .pill-green { background: #EAF3DE; color: #3B6D11; }
-  .pill-red { background: #FCEBEB; color: #A32D2D; }
-  .pill-gray { background: #f5f5f5; color: #666; }
-  .pill-orange { background: #FFF3E0; color: #E65100; }
-  .producto-link { font-size: 11px; color: #185FA5; text-decoration: none; margin-top: 6px; display: inline-block; }
-  .no-data { color: #aaa; font-size: 13px; font-style: italic; padding: 12px 0; }
+  /* Cards de proveedor */
+  .proveedor-card { background: white; border-radius: 12px; border: 1px solid #e5e5e5; padding: 1.5rem; margin-bottom: 1.2rem; }
+  .proveedor-header { display: flex; align-items: center; gap: 10px; margin-bottom: 1.2rem; border-bottom: 1px solid #f0f0f0; padding-bottom: 12px; }
+  .proveedor-logo { width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; }
+  .logo-ali { background: #ff6600; color: white; }
+  .logo-alibaba { background: #ff8c00; color: white; }
+  .logo-cj { background: #e8490f; color: white; }
+  .proveedor-nombre { font-size: 16px; font-weight: 600; }
+  .proveedor-tag { font-size: 11px; color: #888; margin-top: 1px; }
+  .mejor-badge { margin-left: auto; background: #1a1a1a; color: white; font-size: 11px; padding: 4px 10px; border-radius: 20px; }
 
-  .mejor-badge { background: #1a1a1a; color: white; font-size: 11px; padding: 2px 8px; border-radius: 4px; }
+  /* Tabla de productos */
+  .productos-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .productos-table th { text-align: left; padding: 8px 10px; background: #f9f9f9; color: #666; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .productos-table th:last-child { text-align: center; }
+  .productos-table td { padding: 10px; border-bottom: 1px solid #f5f5f5; vertical-align: top; }
+  .productos-table tr:last-child td { border-bottom: none; }
+  .producto-nombre { font-size: 13px; color: #1a1a1a; line-height: 1.4; margin-bottom: 4px; }
+  .producto-link { font-size: 11px; color: #185FA5; text-decoration: none; }
+  .producto-link:hover { text-decoration: underline; }
+  .precio-cell { font-size: 16px; font-weight: 600; white-space: nowrap; }
+  .precio-range { font-size: 12px; color: #666; margin-top: 2px; }
+  .pill { display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 4px; margin: 1px; }
+  .p-green { background: #EAF3DE; color: #3B6D11; }
+  .p-gray { background: #f0f0f0; color: #666; }
+  .p-orange { background: #FFF3E0; color: #E65100; }
+  .p-blue { background: #E6F1FB; color: #185FA5; }
+  .rating-ok { color: #3B6D11; }
+  .rating-bad { color: #A32D2D; }
+  .envio-cell { white-space: nowrap; }
+  .sin-datos { color: #aaa; font-style: italic; font-size: 13px; padding: 12px 0; }
+
+  .tiempo-es { font-size: 12px; color: #555; margin-top: 2px; }
 </style>
 </head>
 <body>
 
 <h1>Análisis de Proveedores</h1>
-<p class="subtitle">Busca el producto en AliExpress, Alibaba y CJDropshipping y calcula el margen de rentabilidad.</p>
+<p class="subtitle">Busca el producto en AliExpress, Alibaba y CJDropshipping. Calcula el margen real frente al precio de mercado en España.</p>
 
-<div class="card">
+<div class="input-card">
   <label>Nombre del producto</label>
   <input type="text" id="product_name" value="Interactive Pet Ball" placeholder="ej. Interactive Pet Ball">
 
-  <label>Keyword de búsqueda (en inglés)</label>
+  <label>Keyword de búsqueda en inglés</label>
   <input type="text" id="keyword" value="smart dog ball interactive" placeholder="ej. smart dog ball interactive">
 
-  <label>Precio de venta en España (€) <span style="color:#aaa;font-weight:400">— de la capa Viabilidad</span></label>
-  <input type="number" id="precio_venta_es" value="26" step="0.01" placeholder="ej. 26.00">
+  <div class="row" style="margin-top:14px">
+    <div>
+      <label style="margin-top:0">Precio medio venta en España (€)</label>
+      <input type="number" id="precio_venta_es" value="26" step="0.01" placeholder="ej. 26.00">
+    </div>
+    <div>
+      <label style="margin-top:0">País destino envío</label>
+      <input type="text" id="pais" value="España" placeholder="España">
+    </div>
+  </div>
 
   <button id="btn" onclick="lanzar()">Buscar proveedores y calcular margen</button>
   <div class="status" id="status"></div>
@@ -77,6 +106,12 @@
 <div id="resultado"></div>
 
 <script>
+const TIEMPOS_DEFAULT = {
+  aliexpress:    { es: '8–15 días', eu: '3–7 días (almacén EU)' },
+  alibaba:       { es: '15–30 días', eu: '15–30 días' },
+  cjdropshipping:{ es: '7–12 días', eu: '7–12 días' },
+};
+
 async function lanzar() {
   const btn    = document.getElementById('btn');
   const status = document.getElementById('status');
@@ -97,7 +132,7 @@ async function lanzar() {
   btn.disabled = true;
   result.innerHTML = '';
   status.className = 'status loading';
-  status.innerHTML = '<span class="spinner"></span>Scrapeando AliExpress, Alibaba y CJDropshipping en paralelo... puede tardar 1-2 minutos.';
+  status.innerHTML = '<span class="spinner"></span>Scrapeando AliExpress, Alibaba y CJDropshipping en paralelo... 1–2 minutos.';
 
   const start = Date.now();
 
@@ -109,12 +144,9 @@ async function lanzar() {
     });
     const data = await res.json();
     const elapsed = ((Date.now() - start) / 1000).toFixed(0);
-
     if (!res.ok || data.error) throw new Error(data.error || 'Error del servidor');
-
     status.style.display = 'none';
     result.innerHTML = renderResultado(data, elapsed);
-
   } catch(e) {
     status.className = 'status error';
     status.textContent = 'Error: ' + e.message;
@@ -123,71 +155,121 @@ async function lanzar() {
   }
 }
 
-function fmt(p, suffix = ' €') {
-  if (p === null || p === undefined) return '—';
-  return p.toFixed(2).replace('.', ',') + suffix;
+function fmt(p) {
+  if (p === null || p === undefined || isNaN(p)) return '—';
+  return p.toFixed(2).replace('.', ',') + ' €';
 }
 
-function ratingPill(rating, ok) {
-  if (rating === null || rating === undefined) return '<span class="pill pill-gray">Sin rating</span>';
-  const cls = ok === true ? 'pill-green' : ok === false ? 'pill-red' : 'pill-gray';
-  return `<span class="pill ${cls}">⭐ ${rating}</span>`;
-}
+function renderResumen(r, precioVenta) {
+  const margen = r.margen_bruto_pct;
+  const coste  = r.coste_minimo;
+  const margenEuros = (precioVenta && coste) ? (precioVenta - coste).toFixed(2).replace('.', ',') + ' €' : '—';
 
-function renderProducto(item, esMejor) {
-  const esAlibaba = item.plataforma === 'alibaba';
-  const precio = esAlibaba
-    ? `${fmt(item.precio_min)} – ${fmt(item.precio_max)}`
-    : fmt(item.precio);
+  const bannerClass = margen >= 70 ? 'veredicto-verde' : margen >= 50 ? 'veredicto-amarillo' : 'veredicto-rojo';
+  const valorClass  = margen >= 70 ? 'verde' : margen >= 50 ? 'amarillo' : 'rojo';
 
-  const moqPill = esAlibaba && item.moq
-    ? `<span class="pill pill-orange">MOQ: ${item.moq} uds</span>`
-    : '';
-
-  const envio = item.envioGratis === true
-    ? '<span class="pill pill-green">Envío gratis</span>'
-    : item.envioGratis === false
-    ? '<span class="pill pill-gray">Envío de pago</span>'
-    : '';
-
-  const tiempo = item.tiempoEnvio ? `<span class="pill pill-gray">${item.tiempoEnvio}</span>` : '';
-  const anos   = item.anos_proveedor ? `<span class="pill pill-gray">${item.anos_proveedor} años en plataforma</span>` : '';
-  const mejorBadge = esMejor ? '<span class="mejor-badge">⭐ Mejor precio</span>' : '';
-
-  const ratingKey = item.rating ?? item.rating_proveedor ?? null;
-  const ratingOkVal = item.rating_ok;
-
-  return `<div class="producto-card">
-    <div class="producto-header">
-      <div class="producto-titulo">${item.titulo || '—'} ${mejorBadge}</div>
-      <div class="producto-precio">${precio}</div>
+  return `<div class="resumen">
+    <div class="veredicto-banner ${bannerClass}">${r.veredicto}</div>
+    <div class="resumen-grid">
+      <div class="resumen-item">
+        <div class="resumen-label">Precio venta ES</div>
+        <div class="resumen-valor">${fmt(precioVenta)}</div>
+      </div>
+      <div class="resumen-item">
+        <div class="resumen-label">Mejor proveedor</div>
+        <div class="resumen-valor" style="font-size:15px">${r.proveedor_mas_barato || '—'}</div>
+        <div class="resumen-sub">${fmt(r.coste_minimo)} / unidad</div>
+      </div>
+      <div class="resumen-item">
+        <div class="resumen-label">Margen bruto €</div>
+        <div class="resumen-valor ${valorClass}">${margenEuros}</div>
+      </div>
+      <div class="resumen-item">
+        <div class="resumen-label">Margen bruto %</div>
+        <div class="resumen-valor ${valorClass}">${margen !== null ? margen + '%' : '—'}</div>
+      </div>
     </div>
-    <div class="producto-meta">
-      ${ratingPill(ratingKey, ratingOkVal)}
-      ${envio}
-      ${tiempo}
-      ${moqPill}
-      ${anos}
-      ${item.ordenes ? `<span class="pill pill-gray">${item.ordenes.toLocaleString()} órdenes</span>` : ''}
-    </div>
-    ${item.url ? `<a class="producto-link" href="${item.url}" target="_blank">Ver en ${item.fuente || item.plataforma} →</a>` : ''}
   </div>`;
 }
 
-function renderSeccion(titulo, items, badgeClass, badgeLabel, mejorUrl) {
-  let html = `<div class="proveedor-section">
-    <div class="proveedor-title">
-      ${titulo}
-      <span class="badge-plat ${badgeClass}">${badgeLabel}</span>
+function renderRating(rating, ok) {
+  if (rating === null || rating === undefined) return '<span class="pill p-gray">Sin rating</span>';
+  const cls = ok === true ? 'rating-ok' : ok === false ? 'rating-bad' : '';
+  return `<span class="pill p-gray"><span class="${cls}">⭐ ${rating}</span></span>`;
+}
+
+function renderEnvio(item, plataforma) {
+  const tiempos = TIEMPOS_DEFAULT[plataforma] || {};
+  const tiempo  = item.tiempoEnvio || tiempos.es || '—';
+  const gratis  = item.envioGratis;
+
+  const pilEnvio = gratis === true
+    ? '<span class="pill p-green">Envío gratis</span>'
+    : gratis === false
+    ? '<span class="pill p-gray">Envío de pago</span>'
+    : '<span class="pill p-gray">Ver en web</span>';
+
+  return `<div class="envio-cell">${pilEnvio}<div class="tiempo-es">${tiempo}</div></div>`;
+}
+
+function renderFilaProducto(item, plataforma, esMejor) {
+  const esAlibaba = plataforma === 'alibaba';
+  const precioCelda = esAlibaba
+    ? `<div class="precio-cell">${fmt(item.precio_min)}</div><div class="precio-range">hasta ${fmt(item.precio_max)}</div>`
+    : `<div class="precio-cell">${fmt(item.precio)}</div>`;
+
+  const moq = esAlibaba
+    ? `<span class="pill p-orange">MOQ ${item.moq || 1} uds</span>`
+    : `<span class="pill p-green">MOQ 1</span>`;
+
+  const nombre = item.titulo
+    ? `<div class="producto-nombre">${item.titulo.substring(0, 80)}${item.titulo.length > 80 ? '…' : ''}</div>`
+    : '<div class="producto-nombre" style="color:#aaa">Sin título</div>';
+
+  const link = item.url
+    ? `<a class="producto-link" href="${item.url}" target="_blank">Ver producto →</a>`
+    : '';
+
+  const mejorMarca = esMejor ? ' <span class="pill p-blue">⭐ Mejor precio</span>' : '';
+
+  return `<tr>
+    <td>${nombre}${link}${mejorMarca}</td>
+    <td>${precioCelda}</td>
+    <td>${moq}</td>
+    <td>${renderEnvio(item, plataforma)}</td>
+    <td style="text-align:center">${renderRating(item.rating ?? item.rating_proveedor ?? null, item.rating_ok)}</td>
+  </tr>`;
+}
+
+function renderProveedorCard(nombre, logoClass, logoLetra, tag, items, plataforma, mejorFuente) {
+  const esMejorProveedor = mejorFuente === nombre;
+
+  let html = `<div class="proveedor-card">
+    <div class="proveedor-header">
+      <div class="proveedor-logo ${logoClass}">${logoLetra}</div>
+      <div>
+        <div class="proveedor-nombre">${nombre}</div>
+        <div class="proveedor-tag">${tag}</div>
+      </div>
+      ${esMejorProveedor ? '<span class="mejor-badge">✅ Mejor opción</span>' : ''}
     </div>`;
 
   if (!items || items.length === 0) {
-    html += '<div class="no-data">No se encontraron resultados.</div>';
+    html += '<div class="sin-datos">No se encontraron resultados para esta búsqueda.</div>';
   } else {
+    html += `<table class="productos-table">
+      <thead><tr>
+        <th>Producto</th>
+        <th>Precio</th>
+        <th>MOQ</th>
+        <th>Envío a España</th>
+        <th style="text-align:center">Rating</th>
+      </tr></thead>
+      <tbody>`;
     items.forEach((item, i) => {
-      const esMejor = i === 0 && item.url === mejorUrl;
-      html += renderProducto(item, esMejor);
+      html += renderFilaProducto(item, plataforma, esMejorProveedor && i === 0);
     });
+    html += '</tbody></table>';
   }
 
   html += '</div>';
@@ -196,41 +278,24 @@ function renderSeccion(titulo, items, badgeClass, badgeLabel, mejorUrl) {
 
 function renderResultado(d, elapsed) {
   const r = d.resumen;
-  const mejor = r.mejor_opcion;
-  const mejorUrl = mejor?.url || '';
-
-  const margenColor = r.margen_bruto_pct >= 70 ? '#3B6D11' : r.margen_bruto_pct >= 50 ? '#BA7517' : '#A32D2D';
-
-  let html = `<div class="resumen-card">
-    <div class="veredicto">${r.veredicto}</div>
-    <div style="font-size:13px;color:#555;margin-bottom:8px">
-      Mejor proveedor: <strong>${mejor?.fuente || '—'}</strong>
-      ${mejor ? `· "${mejor.titulo?.substring(0, 60)}..."` : ''}
-    </div>
-    <div class="metricas">
-      <div class="metrica">
-        <div class="metrica-label">Precio venta ES</div>
-        <div class="metrica-valor">${fmt(d.precio_venta_es)}</div>
-      </div>
-      <div class="metrica">
-        <div class="metrica-label">Coste proveedor</div>
-        <div class="metrica-valor">${fmt(r.coste_minimo)}</div>
-        <div class="metrica-sub">${r.proveedor_mas_barato || ''}</div>
-      </div>
-      <div class="metrica">
-        <div class="metrica-label">Margen bruto</div>
-        <div class="metrica-valor" style="color:${margenColor}">${r.margen_bruto_pct !== null ? r.margen_bruto_pct + '%' : '—'}</div>
-      </div>
-    </div>
-    <div style="font-size:12px;color:#888;margin-top:12px">Tiempo de análisis: ${elapsed}s · Rating válido: ${r.criterios_calidad.rating_producto_min}–${r.criterios_calidad.rating_producto_max}</div>
-  </div>`;
-
   const p = d.proveedores;
-  html += '<div class="card">';
-  html += renderSeccion('AliExpress', p.aliexpress, 'badge-ali', 'AliExpress', mejorUrl);
-  html += renderSeccion('Alibaba', p.alibaba, 'badge-alibaba', 'Alibaba (MOQ)', mejorUrl);
-  html += renderSeccion('CJDropshipping', p.cjdropshipping, 'badge-cj', 'CJDropshipping', mejorUrl);
-  html += '</div>';
+  const precioVenta = d.precio_venta_es;
+
+  let html = renderResumen(r, precioVenta);
+
+  html += renderProveedorCard('CJDropshipping', 'logo-cj', 'CJ',
+    'Dropshipping · Envío desde China/EU · Sin stock mínimo',
+    p.cjdropshipping, 'cjdropshipping', r.proveedor_mas_barato);
+
+  html += renderProveedorCard('AliExpress', 'logo-ali', 'AE',
+    'Retail/Dropshipping · Vendedores individuales · Sin MOQ',
+    p.aliexpress, 'aliexpress', r.proveedor_mas_barato);
+
+  html += renderProveedorCard('Alibaba', 'logo-alibaba', 'AB',
+    'Mayorista · Precio por volumen · MOQ mínimo requerido',
+    p.alibaba, 'alibaba', r.proveedor_mas_barato);
+
+  html += `<div style="font-size:12px;color:#aaa;text-align:center;margin-top:8px">Análisis completado en ${elapsed}s</div>`;
 
   return html;
 }
