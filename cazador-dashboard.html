@@ -178,6 +178,17 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   <div class="empty-state" id="empty">Los productos aparecerán aquí en tiempo real conforme avance el pipeline.</div>
 </div>
 
+<!-- VALIDADOR BATCH — productos conocidos sin TikTok -->
+<div style="max-width:960px;margin:0 auto;padding:0 2rem 0">
+  <div style="background:white;border:1px solid #e5e5e5;border-radius:12px;padding:1.5rem;margin-top:2rem">
+    <div style="font-size:13px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:1rem">⚡ Validar lista de productos (sin TikTok)</div>
+    <p style="font-size:13px;color:#888;margin-bottom:1rem">Pega los nombres de productos separados por comas. Se validan directamente por Meta → Viabilidad → Proveedores sin repetir el scraping de TikTok.</p>
+    <textarea id="batch-input" rows="4" style="width:100%;padding:10px 14px;border:1px solid #ddd;border-radius:8px;font-size:13px;font-family:monospace;resize:vertical" placeholder="Kitchen Degreaser Spray, Pet Detangler Comb, Modular Mini PC, No Drill Roman Shades, VoltGuard Smart Charger, Havaianas Flip Flops, Dreame Air Purifier, Yam Pounder, Portable Pet Water Dispenser"></textarea>
+    <button onclick="lanzarBatch()" id="btn-batch" style="margin-top:10px;background:#1a1a1a;color:white;border:none;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:500;cursor:pointer">⚡ Validar productos</button>
+    <div style="font-size:12px;font-family:monospace;color:#888;background:#f9f9f9;border-radius:8px;padding:10px;margin-top:10px;max-height:80px;overflow-y:auto;display:none" id="batch-log"></div>
+  </div>
+</div>
+
 <!-- VALIDADOR MANUAL -->
 <div style="max-width:960px;margin:0 auto;padding:0 2rem 3rem">
   <div style="background:white;border:1px solid #e5e5e5;border-radius:12px;padding:1.5rem;margin-top:2rem">
@@ -396,7 +407,77 @@ function reordenar() {
   setText('ganadores-title', `Productos ganadores (${cards.length}) · ordenados por margen`);
 }
 
-// ── VALIDADOR MANUAL ─────────────────────────────────────────────────────────
+// ── VALIDADOR BATCH ──────────────────────────────────────────────────────────
+function lanzarBatch() {
+  const input = document.getElementById('batch-input').value.trim();
+  if (!input) return;
+
+  const productos = input.split(',').map(p => p.trim()).filter(Boolean);
+  if (productos.length === 0) return;
+
+  const btn   = document.getElementById('btn-batch');
+  const logEl = document.getElementById('batch-log');
+
+  btn.disabled = true;
+  btn.textContent = `⏳ Validando ${productos.length} productos...`;
+  logEl.style.display = 'block';
+  logEl.innerHTML = '';
+  document.getElementById('empty').style.display = 'none';
+  document.getElementById('ganadores-section').style.display = 'block';
+  document.getElementById('fin-banner').classList.remove('visible');
+
+  function blog(msg) {
+    logEl.innerHTML += `<div>${new Date().toLocaleTimeString()} ${msg}</div>`;
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  blog(`Iniciando validación de ${productos.length} productos...`);
+
+  const url = `/batch/stream?productos=${encodeURIComponent(productos.join(','))}`;
+  const es  = new EventSource(url);
+
+  es.addEventListener('inicio',    e => blog(`Pipeline iniciado: ${JSON.parse(e.data).total} productos`));
+  es.addEventListener('capa',      e => { const d = JSON.parse(e.data); blog(`[${d.producto}] Capa ${d.capa}: ${d.detalle}`); });
+  es.addEventListener('meta_result', e => {
+    const d = JSON.parse(e.data);
+    blog(`[Meta] ${d.producto}: ${d.anunciantes} anunciantes · keyword: "${d.keyword}" → ${d.pasa ? '✅ PASA' : '❌ DESCARTADO'}`);
+  });
+  es.addEventListener('viabilidad_result', e => {
+    const d = JSON.parse(e.data);
+    blog(`[Viabilidad ES] ${d.producto}: ${d.competidores||0} competidores · precio medio: ${d.precio_medio_fmt||'—'}`);
+  });
+  es.addEventListener('proveedores_result', e => {
+    const d = JSON.parse(e.data);
+    blog(`[Proveedores] ${d.producto}: ${d.proveedor||'—'} @ ${fmt(d.coste_min)} · margen ${d.margen_pct||'—'}%`);
+  });
+  es.addEventListener('descartado', e => {
+    const d = JSON.parse(e.data);
+    blog(`❌ ${d.producto} descartado en ${d.capa}: ${d.motivo}`);
+    renderDescartado(d);
+  });
+  es.addEventListener('informe_producto', e => {
+    const d = JSON.parse(e.data);
+    renderGanador(d);
+    blog(`✅ ${d.producto} → margen ${d.margen_pct}% · ${d.veredicto}`);
+  });
+  es.addEventListener('fin', e => {
+    const d = JSON.parse(e.data);
+    blog(`✅ Completado: ${d.total_ganadores} ganadores`);
+    btn.disabled = false;
+    btn.textContent = '⚡ Validar productos';
+    reordenar();
+    es.close();
+  });
+  es.addEventListener('error', e => {
+    try { blog('❌ Error: ' + JSON.parse(e.data).mensaje); } catch(_) {}
+    btn.disabled = false;
+    btn.textContent = '⚡ Validar productos';
+    es.close();
+  });
+  es.onerror = () => { btn.disabled = false; btn.textContent = '⚡ Validar productos'; es.close(); };
+}
+
+// ── VALIDADOR MANUAL ──────────────────────────────────────────────────────────
 function lanzarValidador() {
   const input = document.getElementById('validar-input').value.trim();
   if (!input) return;
