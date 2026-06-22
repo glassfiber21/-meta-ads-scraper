@@ -23,95 +23,31 @@ const APIFY_API_KEY = process.env.APIFY_API_KEY || '';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 
 // ── Configuración ─────────────────────────────────────────────────────────────
-// 30 hashtags × 5 vídeos = 150 vídeos
-// 20 evergreen (todo el año) + 10 estacionales (según trimestre actual)
-// El trimestre se calcula automáticamente por la fecha del servidor
+// 24 evergreen + 6 estacionales = 30 hashtags × 10 vídeos = 300 vídeos
+// Seleccionados por rendimiento real — hashtags de categoría específica > genéricos
 
-function getQuarterHashtags() {
-  const month = new Date().getMonth() + 1; // 1-12
-
-  // Q1: Enero-Marzo — Invierno + organización + fitness
-  const Q1 = [
-    '#wintermusthaves', '#winterproducts', '#coldweatheressentials',
-    '#organization', '#declutter', '#organizedlife',
-    '#fitnessproducts', '#homeworkout', '#healthgadgets', '#newyearfinds',
-  ];
-
-  // Q2: Abril-Junio — Primavera + jardín + mascotas + viajes
-  const Q2 = [
-    '#gardenfinds', '#gardenhacks', '#outdoorproducts', '#patioideas',
-    '#travelproducts', '#travelessentials',
-    '#petfinds', '#dogmusthaves', '#springfinds', '#springcleaning',
-  ];
-
-  // Q3: Julio-Septiembre — Verano
-  const Q3 = [
-    '#summerproducts', '#summermusthaves', '#poolproducts', '#poolhacks',
-    '#beachmusthaves', '#vacationessentials',
-    '#summergadgets', '#coolingproducts', '#travelgadgets', '#outdoormusthaves',
-  ];
-
-  // Q4: Octubre-Diciembre — Halloween + Black Friday + Navidad
-  const Q4 = [
-    '#giftideas', '#christmasgifts', '#giftfinds', '#stockingstuffers',
-    '#holidaymusthaves', '#blackfridayfinds',
-    '#christmasshopping', '#halloweendecor', '#cozyhome', '#holidaygifts',
-  ];
-
-  if (month <= 3) return { quarter: 'Q1', hashtags: Q1 };
-  if (month <= 6) return { quarter: 'Q2', hashtags: Q2 };
-  if (month <= 9) return { quarter: 'Q3', hashtags: Q3 };
-  return           { quarter: 'Q4', hashtags: Q4 };
-}
-
-// 24 hashtags evergreen — motor principal todo el año
-// Incluye nichos mascotas y bebés (alta conversión, compradores con poder adquisitivo)
-const EVERGREEN_HASHTAGS = [
-  '#tiktokmademebuyit',  // señal de compra más fuerte de TikTok
-  '#viralproducts',
-  '#coolgadgets',
-  '#musthave',
-  '#musthaves',
-  '#bestfinds',
-  '#lifehacks',
-  '#productfinds',
-  '#shopwithme',
-  // ===== MASCOTAS =====
-  '#petproducts',
-  '#petgadgets',
-  '#dogproducts',
-  '#dogtok',          // muy viral, productos de nicho claro
-  '#petmom',          // alta intención de compra
-  // ===== BEBÉS / FAMILIA =====
-  '#babygadgets',     // nicho evergreen de altísima conversión
-  '#momhacks',        // compradores con poder adquisitivo
-  // ===== HOGAR / COCINA =====
-  '#homefinds',
-  '#homeessentials',
-  '#kitchengadgets',
-  '#cleaningproducts',
-  // ===== TECH / GADGETS =====
-  '#travelgadgets',
-  '#gadgets',
-  '#techgadgets',
-];
-
-// Los estacionales se reducen a 6 para mantener 30 hashtags totales
 function getQuarterHashtags() {
   const month = new Date().getMonth() + 1;
-
-  const Q1 = ['#wintermusthaves','#organization','#fitnessproducts','#homeworkout','#healthgadgets','#newyearfinds'];
-  const Q2 = ['#gardenfinds','#outdoorproducts','#travelproducts','#petfinds','#springfinds','#springcleaning'];
-  const Q3 = ['#summerproducts','#poolproducts','#beachmusthaves','#summergadgets','#coolingproducts','#vacationessentials'];
-  const Q4 = ['#giftideas','#christmasgifts','#stockingstuffers','#holidaymusthaves','#blackfridayfinds','#cozyhome'];
-
+  const Q1 = ['#organizationproducts','#fitnessgadgets','#homegym','#coldweathergear','#weightloss','#newyearproducts'];
+  const Q2 = ['#gardentools','#outdoorgadgets','#petfinds','#travelessentials','#springcleaning','#campinggear'];
+  const Q3 = ['#summergadgets','#poolproducts','#beachgear','#coolingproducts','#babyoutdoor','#watergadgets'];
+  const Q4 = ['#giftideas','#christmasgifts','#stockingstuffers','#blackfridayfinds','#cozyhome','#holidaygadgets'];
   if (month <= 3) return { quarter: 'Q1', hashtags: Q1 };
   if (month <= 6) return { quarter: 'Q2', hashtags: Q2 };
   if (month <= 9) return { quarter: 'Q3', hashtags: Q3 };
   return           { quarter: 'Q4', hashtags: Q4 };
 }
 
-// Construir QUERIES_CONFIG: 24 evergreen + 6 estacionales = 30 hashtags × 10 vídeos = 300 vídeos
+const EVERGREEN_HASHTAGS = [
+  '#tiktokmademebuyit', '#viralproducts', '#coolgadgets', '#productreview',
+  '#petproducts', '#petgadgets', '#dogproducts', '#dogtok', '#petmom',
+  '#babygadgets', '#momhacks',
+  '#homefinds', '#homeessentials', '#cleaningproducts', '#cleaninghacks', '#organizationhacks',
+  '#kitchengadgets', '#kitchenhacks',
+  '#gadgets', '#techgadgets', '#gadgetreview',
+  '#beautygadgets', '#skincaregadgets', '#wellnessproducts',
+];
+
 const { quarter: QUARTER, hashtags: SEASONAL_HASHTAGS } = getQuarterHashtags();
 console.log(`[CAZADOR] Trimestre: ${QUARTER} | Hashtags estacionales: ${SEASONAL_HASHTAGS.length}`);
 
@@ -120,7 +56,7 @@ const QUERIES_CONFIG = [
   ...SEASONAL_HASHTAGS.map(h => ({ query: h, videos: 10, tipo: 'estacional' })),
 ];
 
-console.log(`[CAZADOR] Total hashtags: ${QUERIES_CONFIG.length} (20 evergreen + 10 ${QUARTER}) | Total vídeos: ${QUERIES_CONFIG.reduce((s, q) => s + q.videos, 0)}`);
+console.log(`[CAZADOR] Total hashtags: ${QUERIES_CONFIG.length} (24 evergreen + 6 ${QUARTER}) | Total vídeos: ${QUERIES_CONFIG.reduce((s, q) => s + q.videos, 0)}`);
 
 const FILTROS = {
   min_views: 50000,
@@ -148,7 +84,7 @@ const AD_SALE_KEYWORDS = [
 const FASE2_VIDEOS_POR_PRODUCTO = 10;  // coste controlado
 const FASE2_MIN_VIDEOS = 2;            // mínimo vídeos virales para aprobar
 const FASE2_MIN_CREATORS = 2;          // mínimo creadores distintos para aprobar
-const FASE2_MAX_VALIDACIONES = 100;    // valida TODAS las señales — sin límite artificial (máx protección 100)
+const FASE2_MAX_VALIDACIONES = 100;    // valida TODAS las señales sin límite artificial
 const FASE2_PENALIZE_DAYS = 180;       // penalizar si oldest_days > 180
 
 // ── Job queue ─────────────────────────────────────────────────────────────────
@@ -1032,68 +968,121 @@ app.get('/api/producto/:slug', (req, res) => {
 app.get('/cazador', (req, res) => res.sendFile(path.join(__dirname, 'cazador.html')));
 app.use(express.static(__dirname));
 
-app.listen(PORT, () => {
-  console.log(`[SERVER] Cazador v9.0 en puerto ${PORT}`);
-  console.log(`[FASE1] ${QUERIES_CONFIG.length} hashtags × ${QUERIES_CONFIG[0].videos} vídeos = ${QUERIES_CONFIG.reduce((s,q)=>s+q.videos,0)} vídeos`);
-  console.log(`[FILTROS] views>=${FILTROS.min_views} | likes>=${FILTROS.min_likes} | fans>=${FILTROS.min_fans} | ADs: filtro propio`);
-  console.log(`[FASE2] ${FASE2_VIDEOS_POR_PRODUCTO}v/producto | min ${FASE2_MIN_VIDEOS}v ${FASE2_MIN_CREATORS}c | max ${FASE2_MAX_VALIDACIONES} validaciones | penaliza >${FASE2_PENALIZE_DAYS}d`);
-  console.log(`[SCORING] 50%creadores 25%videos 15%views 10%likes +5bonus(≥3ADs) -30%(>180d)`);
-  console.log(`[MATCHING] canonical + Fase2A gratis + Fase2B MOST_RELEVANT + filtro 180d + dedup`);
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PIPELINE UNIFICADO — SSE streaming en tiempo real
-// Embudo en cascada con filtros reales según campos exactos de cada servicio
-// ─────────────────────────────────────────────────────────────────────────────
 
 const META_URL    = process.env.META_URL    || 'https://meta-ads-production-c504.up.railway.app';
 const TRENDS_URL  = process.env.TRENDS_URL  || 'https://google-trends-production.up.railway.app';
 const PROVEED_URL = process.env.PROVEED_URL || 'https://proveedores-production.up.railway.app';
-
-const FILTRO_MARGEN_MIN = 60; // % mínimo margen bruto para aparecer en informe final
+const FILTRO_MARGEN_MIN = 60;
 
 function sseWrite(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
-function decideTrendsFilter(trends) {
-  if (!trends) return 'pasa';
-  const t90  = (trends.trend_90d  || '').toLowerCase();
-  const t12  = (trends.trend_12m  || '').toLowerCase();
-  const pico = trends.vs_peak?.pctOfPeak ?? 100;
-  if (t90.includes('bajando') && t12.includes('bajando') && pico < 50) return 'descarta';
-  return 'pasa';
-}
-
-// Polling de job asíncrono (para /validate-one de Meta)
 async function pollJob(baseUrl, jobId, maxMs = 120000) {
   const start = Date.now();
   while (Date.now() - start < maxMs) {
     await new Promise(r => setTimeout(r, 4000));
     const r = await fetch(`${baseUrl}/job-status/${jobId}`);
     const d = await r.json();
-    if (d.status === 'done')   return d.result;
-    if (d.status === 'error')  throw new Error(d.result?.error || 'Job error');
+    if (d.status === 'done')  return d.result;
+    if (d.status === 'error') throw new Error(d.result?.error || 'Job error');
   }
   throw new Error('Timeout polling job');
 }
 
+async function runProductoPipeline(res, nombre, score, creators, videos) {
+  // META
+  sseWrite(res, 'capa', { capa: 2, nombre: 'Meta Ads USA', estado: 'running', producto: nombre, detalle: 'Validando anunciantes...' });
+  let metaResult = null;
+  try {
+    const sr = await fetch(`${META_URL}/validate-one`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product: nombre, tiktok_score: score||0, creators: creators||0, videos: videos||0 }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const sd = await sr.json();
+    if (sd.job_id) { const jr = await pollJob(META_URL, sd.job_id, 120000); metaResult = jr?.producto || null; }
+  } catch(e) { console.error(`[META] ${nombre}:`, e.message); }
+
+  const pasaMeta    = metaResult?.meta?.pasa_a_trends === true;
+  const anunciantes = metaResult?.meta?.operadores_independientes ?? 0;
+  const keywordMeta = metaResult?.meta_keyword_used || nombre;
+  sseWrite(res, 'meta_result', { producto: nombre, pasa: pasaMeta, anunciantes, keyword: keywordMeta, anuncios: metaResult?.meta?.total_ads_found });
+
+  if (!pasaMeta) {
+    sseWrite(res, 'descartado', { producto: nombre, capa: 'Meta', motivo: `${anunciantes} anunciantes (mín 3)` });
+    return null;
+  }
+
+  // TRENDS BYPASS
+  sseWrite(res, 'capa', { capa: 3, nombre: 'Google Trends', estado: 'done', producto: nombre, detalle: '⏭️ Bypassed' });
+  sseWrite(res, 'trends_result', { producto: nombre, decision: 'pasa', trend_90d: 'N/A', trend_12m: 'N/A', phase: 'Sin datos', phase_icon: '⏭️' });
+
+  // VIABILIDAD
+  sseWrite(res, 'capa', { capa: 4, nombre: 'Viabilidad España', estado: 'running', producto: nombre, detalle: 'Precios en España...' });
+  let viabData = null;
+  try {
+    const r = await fetch(`${META_URL}/viabilidad`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product_name: nombre, meta_keyword: keywordMeta, country: 'ES', days: 7 }),
+      signal: AbortSignal.timeout(300000),
+    });
+    viabData = await r.json();
+  } catch(e) { console.error(`[VIAB] ${nombre}:`, e.message); }
+  const precioMedioEs = viabData?.precios?.precio_medio || null;
+  sseWrite(res, 'viabilidad_result', { producto: nombre, competidores: viabData?.anuncios_encontrados, precio_min: viabData?.precios?.precio_minimo, precio_medio: precioMedioEs, precio_max: viabData?.precios?.precio_maximo, precio_medio_fmt: viabData?.precios?.precio_medio_fmt });
+
+  // PROVEEDORES
+  sseWrite(res, 'capa', { capa: 5, nombre: 'Proveedores', estado: 'running', producto: nombre, detalle: 'AliExpress + Alibaba...' });
+  let provData = null;
+  try {
+    const r = await fetch(`${PROVEED_URL}/proveedor`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ product_name: nombre, keyword: keywordMeta, precio_venta_es: precioMedioEs }),
+      signal: AbortSignal.timeout(300000),
+    });
+    provData = await r.json();
+  } catch(e) { console.error(`[PROV] ${nombre}:`, e.message); }
+
+  const margenPct   = provData?.resumen?.margen_bruto_pct  || null;
+  const costeMin    = provData?.resumen?.coste_minimo       || null;
+  const margenEuros = provData?.resumen?.margen_bruto_euros || null;
+  sseWrite(res, 'proveedores_result', { producto: nombre, coste_min: costeMin, proveedor: provData?.resumen?.proveedor_mas_barato, margen_pct: margenPct, margen_euros: margenEuros, veredicto: provData?.resumen?.veredicto });
+
+  if (margenPct !== null && margenPct < FILTRO_MARGEN_MIN) {
+    sseWrite(res, 'descartado', { producto: nombre, capa: 'Margen', motivo: `Margen ${margenPct}% < ${FILTRO_MARGEN_MIN}%` });
+    return null;
+  }
+
+  const ventasPara10k = precioMedioEs ? Math.ceil(10000 / precioMedioEs) : null;
+  const semaforo      = margenPct >= 70 ? '🟢' : margenPct >= 60 ? '🟡' : '🔴';
+
+  return {
+    producto: nombre, semaforo,
+    score_tiktok: score, videos, creadores: creators,
+    keyword_meta: keywordMeta, anunciantes_usa: anunciantes, pasa_meta: pasaMeta,
+    competidores_es: viabData?.anuncios_encontrados,
+    precio_min_es: viabData?.precios?.precio_minimo, precio_medio_es: precioMedioEs, precio_max_es: viabData?.precios?.precio_maximo,
+    coste_min: costeMin, proveedor: provData?.resumen?.proveedor_mas_barato,
+    margen_pct: margenPct, margen_euros: margenEuros, veredicto: provData?.resumen?.veredicto,
+    ventas_para_10k: ventasPara10k, ventas_dia: ventasPara10k ? Math.ceil(ventasPara10k/30) : null,
+    aliexpress: provData?.proveedores?.aliexpress?.[0] || null,
+    alibaba:    provData?.proveedores?.alibaba?.[0]    || null,
+  };
+}
+
+// ── /cazador/stream — Pipeline completo desde TikTok ─────────────────────────
 app.get('/cazador/stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.flushHeaders();
-
   const keepAlive = setInterval(() => res.write(': ping\n\n'), 20000);
-
-  const stats = { tiktok: 0, meta_entran: 0, meta_pasan: 0, trends_pasan: 0, final: 0 };
+  const stats = { tiktok: 0, meta_pasan: 0, trends_pasan: 0, final: 0 };
 
   try {
-    // ── CAPA 1: TIKTOK ───────────────────────────────────────────────────────
-    sseWrite(res, 'capa', { capa: 1, nombre: 'TikTok Cazador', estado: 'running',
-      detalle: `${QUERIES_CONFIG.length} hashtags × 5 vídeos = 150 vídeos` });
-
+    sseWrite(res, 'capa', { capa: 1, nombre: 'TikTok Cazador', estado: 'running', detalle: `${QUERIES_CONFIG.length} hashtags × 10 vídeos` });
     const hashtagStats = {};
     QUERIES_CONFIG.forEach(q => { hashtagStats[q.query] = { total: q.videos, passed: 0, identified: 0, validated: 0 }; });
 
@@ -1108,248 +1097,70 @@ app.get('/cazador/stream', async (req, res) => {
     sseWrite(res, 'progreso', { capa: 1, paso: `${filtrados.length} vídeos filtrados → Claude identificando...` });
     const productMap = await identificarProductos(filtrados, hashtagStats);
     const { confirmados, senales } = agrupar(filtrados, productMap);
-
-    // Fase 2B — TODAS las señales (máx FASE2_MAX_VALIDACIONES = 100)
     const validados = [];
-    for (const senal of senales.slice(0, FASE2_MAX_VALIDACIONES)) {
-      sseWrite(res, 'progreso', { capa: 1, paso: `Fase 2B: "${senal.product_name}"` });
-      const r = await validarSenal(senal, hashtagStats); if (r) validados.push(r);
+    for (const s of senales.slice(0, FASE2_MAX_VALIDACIONES)) {
+      sseWrite(res, 'progreso', { capa: 1, paso: `Fase 2B: "${s.product_name}"` });
+      const r = await validarSenal(s, hashtagStats); if (r) validados.push(r);
     }
 
     const productosTikTok = [...confirmados, ...validados].sort((a, b) => b.score - a.score);
     stats.tiktok = productosTikTok.length;
-    stats.meta_entran = productosTikTok.length;
-
-    sseWrite(res, 'capa', { capa: 1, nombre: 'TikTok Cazador', estado: 'done',
-      detalle: `${productosTikTok.length} productos → pasan a Meta` });
-
+    sseWrite(res, 'capa', { capa: 1, nombre: 'TikTok Cazador', estado: 'done', detalle: `${productosTikTok.length} productos detectados` });
     for (const p of productosTikTok) {
-      sseWrite(res, 'producto_tiktok', {
-        product_name: p.product_name, score: p.score,
-        video_count: p.video_count, unique_creators: p.unique_creators,
-        hashtag_count: p.hashtag_count, oldest_days: p.oldest_days,
-      });
+      sseWrite(res, 'producto_tiktok', { product_name: p.product_name, score: p.score, video_count: p.video_count, unique_creators: p.unique_creators, hashtag_count: p.hashtag_count, oldest_days: p.oldest_days });
     }
 
-    // ── CAPAS 2-5 EN CASCADA ─────────────────────────────────────────────────
     const informesFinal = [];
-
     for (const producto of productosTikTok) {
-      const nombre = producto.product_name;
-
-      // CAPA 2 — META ADS USA (job asíncrono)
-      sseWrite(res, 'capa', { capa: 2, nombre: 'Meta Ads USA', estado: 'running',
-        producto: nombre, detalle: 'Buscando anunciantes en USA...' });
-
-      let metaResult = null;
-      try {
-        const startRes = await fetch(`${META_URL}/validate-one`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            product:      nombre,
-            tiktok_score: producto.score,
-            creators:     producto.unique_creators,
-            videos:       producto.video_count,
-          }),
-          signal: AbortSignal.timeout(10000),
-        });
-        const startData = await startRes.json();
-        if (startData.job_id) {
-          const jobResult = await pollJob(META_URL, startData.job_id, 120000);
-          metaResult = jobResult?.producto || null;
-        }
-      } catch(e) { console.error(`[META] ${nombre}:`, e.message); }
-
-      // Campos reales: metaResult.meta.pasa_a_trends, metaResult.meta.operadores_independientes
-      const pasaMeta     = metaResult?.meta?.pasa_a_trends === true;
-      const anunciantes  = metaResult?.meta?.operadores_independientes ?? 0;
-      const keywordMeta  = metaResult?.meta_keyword_used || nombre;
-
-      sseWrite(res, 'meta_result', {
-        producto: nombre, pasa: pasaMeta,
-        anunciantes, keyword: keywordMeta,
-        anuncios: metaResult?.meta?.total_ads_found,
-      });
-
-      if (!pasaMeta) {
-        sseWrite(res, 'descartado', { producto: nombre, capa: 'Meta',
-          motivo: `${anunciantes} anunciantes independientes (mín 3)` });
-        continue;
-      }
-      stats.meta_pasan++;
-
-      // CAPA 3 — GOOGLE TRENDS (BYPASSED — actor de pago, se reactiva cuando haya ingresos)
-      sseWrite(res, 'capa', { capa: 3, nombre: 'Google Trends', estado: 'done',
-        producto: nombre, detalle: '⏭️ Bypassed — todos los productos pasan directamente' });
-      sseWrite(res, 'trends_result', {
-        producto: nombre, decision: 'pasa',
-        trend_90d: 'N/A', trend_12m: 'N/A',
-        phase: 'Sin datos', phase_icon: '⏭️', semaforo: 'bypass',
-      });
-      stats.trends_pasan++;
-
-      // CAPA 4 — VIABILIDAD ESPAÑA (no filtra, solo enriquece)
-      sseWrite(res, 'capa', { capa: 4, nombre: 'Viabilidad España', estado: 'running',
-        producto: nombre, detalle: 'Precios de competencia en España...' });
-
-      let viabData = null;
-      try {
-        const r = await fetch(`${META_URL}/viabilidad`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            product_name: nombre,
-            meta_keyword: keywordMeta,
-            country: 'ES', days: 7,
-          }),
-          signal: AbortSignal.timeout(180000),
-        });
-        viabData = await r.json();
-      } catch(e) { console.error(`[VIAB] ${nombre}:`, e.message); }
-
-      const precioMedioEs = viabData?.precios?.precio_medio || null;
-      sseWrite(res, 'viabilidad_result', {
-        producto: nombre,
-        competidores:     viabData?.anuncios_encontrados,
-        precio_min:       viabData?.precios?.precio_minimo,
-        precio_medio:     precioMedioEs,
-        precio_max:       viabData?.precios?.precio_maximo,
-        precio_medio_fmt: viabData?.precios?.precio_medio_fmt,
-      });
-
-      // CAPA 5 — PROVEEDORES
-      sseWrite(res, 'capa', { capa: 5, nombre: 'Proveedores', estado: 'running',
-        producto: nombre, detalle: 'AliExpress + Alibaba...' });
-
-      let provData = null;
-      try {
-        const r = await fetch(`${PROVEED_URL}/proveedor`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            product_name:    nombre,
-            keyword:         keywordMeta,
-            precio_venta_es: precioMedioEs,
-          }),
-          signal: AbortSignal.timeout(180000),
-        });
-        provData = await r.json();
-      } catch(e) { console.error(`[PROV] ${nombre}:`, e.message); }
-
-      const margenPct   = provData?.resumen?.margen_bruto_pct   || null;
-      const margenEuros = provData?.resumen?.margen_bruto_euros  || null;
-      const costeMin    = provData?.resumen?.coste_minimo        || null;
-
-      sseWrite(res, 'proveedores_result', {
-        producto: nombre,
-        coste_min:    costeMin,
-        proveedor:    provData?.resumen?.proveedor_mas_barato,
-        margen_pct:   margenPct,
-        margen_euros: margenEuros,
-        veredicto:    provData?.resumen?.veredicto,
-      });
-
-      // FILTRO FINAL — margen < 60%
-      if (margenPct !== null && margenPct < FILTRO_MARGEN_MIN) {
-        sseWrite(res, 'descartado', { producto: nombre, capa: 'Margen',
-          motivo: `Margen ${margenPct}% < ${FILTRO_MARGEN_MIN}% mínimo` });
-        continue;
-      }
-
-      // ── INFORME FINAL ────────────────────────────────────────────────────
-      stats.final++;
-      const ventasPara10k = precioMedioEs ? Math.ceil(10000 / precioMedioEs) : null;
-      const ventasDia     = ventasPara10k ? Math.ceil(ventasPara10k / 30)    : null;
-      const semaforo      = margenPct >= 70 ? '🟢' : margenPct >= 60 ? '🟡' : '🔴';
-
-      const informe = {
-        producto:        nombre,
-        semaforo,
-        score_tiktok:    producto.score,
-        videos:          producto.video_count,
-        creadores:       producto.unique_creators,
-        hashtags_origen: producto.hashtag_count,
-        antiguedad_dias: producto.oldest_days,
-        keyword_meta:    keywordMeta,
-        anunciantes_usa: anunciantes,
-        trend_90d:       trendsData?.trend_90d,
-        trend_12m:       trendsData?.trend_12m,
-        fase_ciclo:      trendsData?.phase,
-        fase_icono:      trendsData?.phase_icon,
-        pct_pico:        trendsData?.vs_peak?.pctOfPeak,
-        semaforo_trends: trendsData?.semaforo,
-        competidores_es: viabData?.anuncios_encontrados,
-        precio_min_es:   viabData?.precios?.precio_minimo,
-        precio_medio_es: precioMedioEs,
-        precio_max_es:   viabData?.precios?.precio_maximo,
-        coste_min:       costeMin,
-        proveedor:       provData?.resumen?.proveedor_mas_barato,
-        margen_pct:      margenPct,
-        margen_euros:    margenEuros,
-        veredicto:       provData?.resumen?.veredicto,
-        ventas_para_10k: ventasPara10k,
-        ventas_dia:      ventasDia,
-        aliexpress:      provData?.proveedores?.aliexpress?.[0]  || null,
-        alibaba:         provData?.proveedores?.alibaba?.[0]     || null,
-      };
-
-      informesFinal.push(informe);
-      sseWrite(res, 'informe_producto', informe);
+      const informe = await runProductoPipeline(res, producto.product_name, producto.score, producto.unique_creators, producto.video_count);
+      if (informe) { informesFinal.push(informe); stats.final++; sseWrite(res, 'informe_producto', informe); }
     }
 
-    informesFinal.sort((a, b) => (b.margen_pct || 0) - (a.margen_pct || 0));
-
-    sseWrite(res, 'fin', {
-      stats,
-      embudo: `TikTok ${stats.tiktok} → Meta ${stats.meta_pasan} → Trends ${stats.trends_pasan} → Ganadores ${stats.final}`,
-      total_ganadores: stats.final,
-      quarter: QUARTER,
-    });
-
+    informesFinal.sort((a, b) => (b.margen_pct||0) - (a.margen_pct||0));
+    sseWrite(res, 'fin', { stats, total_ganadores: stats.final, quarter: QUARTER, embudo: `TikTok ${stats.tiktok} → Ganadores ${stats.final}` });
   } catch(e) {
     console.error('[STREAM ERROR]', e.message);
     sseWrite(res, 'error', { mensaje: e.message });
-  } finally {
-    clearInterval(keepAlive);
-    res.end();
-  }
+  } finally { clearInterval(keepAlive); res.end(); }
 });
 
+// ── /batch/stream — Valida lista de productos sin TikTok ─────────────────────
+app.get('/batch/stream', async (req, res) => {
+  const productos = (req.query.productos||'').split(',').map(p=>p.trim()).filter(Boolean);
+  if (!productos.length) return res.status(400).end();
 
-// ─────────────────────────────────────────────────────────────────────────────
-// VALIDADOR MANUAL — GET /validar/stream?input=...
-// Acepta cualquier input: URL, nombre, texto libre
-// Claude extrae el producto y lo pasa por Meta → Viabilidad → Proveedores
-// ─────────────────────────────────────────────────────────────────────────────
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.flushHeaders();
+  const keepAlive = setInterval(() => res.write(': ping\n\n'), 20000);
 
+  sseWrite(res, 'inicio', { total: productos.length, productos });
+  const informesFinal = [];
+
+  try {
+    for (const nombre of productos) {
+      const informe = await runProductoPipeline(res, nombre, 0, 0, 0);
+      if (informe) { informesFinal.push(informe); sseWrite(res, 'informe_producto', informe); }
+    }
+    informesFinal.sort((a, b) => (b.margen_pct||0) - (a.margen_pct||0));
+    sseWrite(res, 'fin', { total_ganadores: informesFinal.length });
+  } catch(e) {
+    sseWrite(res, 'error', { mensaje: e.message });
+  } finally { clearInterval(keepAlive); res.end(); }
+});
+
+// ── /validar/stream — Valida un producto individual (URL o nombre) ───────────
 async function extraerNombreProducto(input) {
-  const prompt = `You are a dropshipping product researcher.
-The user has given you the following input — it could be a URL, a product name, a landing page URL, an AliExpress URL, or any text describing a product.
-
-Input: "${input}"
-
-Your task: extract or infer the ENGLISH product name that best describes the physical product.
-Be specific (e.g. "Portable Dog Water Bottle", not "pet accessory").
-If it's a URL, infer the product from the URL path or domain context.
-
-Respond ONLY with a JSON object:
-{"product_name": "the product name in English", "confidence": "high/medium/low"}`;
-
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 100,
-      messages: [{ role: 'user', content: prompt }],
-    }),
+  const prompt = `You are a dropshipping researcher. Extract the English product name from this input (URL, text, or product name). Be specific (e.g. "Portable Dog Water Bottle" not "pet accessory"). Input: "${input}" Respond ONLY with JSON: {"product_name": "name"}`;
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 100, messages: [{ role: 'user', content: prompt }] }),
   });
-  const data = await res.json();
-  const text = (data.content?.[0]?.text || '').trim().replace(/```json|```/g, '').trim();
-  const parsed = JSON.parse(text);
-  return parsed.product_name;
+  const d = await r.json();
+  const text = (d.content?.[0]?.text||'').trim().replace(/```json|```/g,'').trim();
+  return JSON.parse(text).product_name;
 }
 
 app.get('/validar/stream', async (req, res) => {
@@ -1361,122 +1172,29 @@ app.get('/validar/stream', async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.flushHeaders();
-
   const keepAlive = setInterval(() => res.write(': ping\n\n'), 20000);
 
   try {
-    // Extraer nombre del producto
-    sseWrite(res, 'progreso', { paso: `Analizando input: "${input.substring(0, 60)}..."` });
+    sseWrite(res, 'progreso', { paso: `Analizando: "${input.substring(0,60)}..."` });
     const nombre = await extraerNombreProducto(input);
     sseWrite(res, 'producto_detectado', { producto: nombre, input_original: input });
-    sseWrite(res, 'progreso', { paso: `Producto detectado: "${nombre}" → iniciando validación` });
-
-    // CAPA 1 — META USA
-    sseWrite(res, 'capa', { capa: 2, nombre: 'Meta Ads USA', estado: 'running',
-      producto: nombre, detalle: 'Buscando anunciantes en USA...' });
-
-    let metaResult = null;
-    try {
-      const startRes = await fetch(`${META_URL}/validate-one`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product: nombre, tiktok_score: 0, creators: 0, videos: 0 }),
-        signal: AbortSignal.timeout(10000),
-      });
-      const startData = await startRes.json();
-      if (startData.job_id) {
-        const jobResult = await pollJob(META_URL, startData.job_id, 120000);
-        metaResult = jobResult?.producto || null;
-      }
-    } catch(e) { console.error(`[VALIDAR META] ${nombre}:`, e.message); }
-
-    const pasaMeta    = metaResult?.meta?.pasa_a_trends === true;
-    const anunciantes = metaResult?.meta?.operadores_independientes ?? 0;
-    const keywordMeta = metaResult?.meta_keyword_used || nombre;
-
-    sseWrite(res, 'meta_result', {
-      producto: nombre, pasa: pasaMeta,
-      anunciantes, keyword: keywordMeta,
-      anuncios: metaResult?.meta?.total_ads_found,
-    });
-    sseWrite(res, 'progreso', { paso: `Meta: ${anunciantes} anunciantes → keyword: "${keywordMeta}"` });
-
-    // CAPA 2 — VIABILIDAD ESPAÑA
-    sseWrite(res, 'capa', { capa: 4, nombre: 'Viabilidad España', estado: 'running',
-      producto: nombre, detalle: 'Buscando precios en España...' });
-
-    let viabData = null;
-    try {
-      const r = await fetch(`${META_URL}/viabilidad`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product_name: nombre, meta_keyword: keywordMeta, country: 'ES', days: 7 }),
-        signal: AbortSignal.timeout(180000),
-      });
-      viabData = await r.json();
-    } catch(e) { console.error(`[VALIDAR VIAB] ${nombre}:`, e.message); }
-
-    const precioMedioEs = viabData?.precios?.precio_medio || null;
-    sseWrite(res, 'viabilidad_result', {
-      producto: nombre,
-      competidores:     viabData?.anuncios_encontrados,
-      precio_min:       viabData?.precios?.precio_minimo,
-      precio_medio:     precioMedioEs,
-      precio_max:       viabData?.precios?.precio_maximo,
-      precio_medio_fmt: viabData?.precios?.precio_medio_fmt,
-    });
-
-    // CAPA 3 — PROVEEDORES
-    sseWrite(res, 'capa', { capa: 5, nombre: 'Proveedores', estado: 'running',
-      producto: nombre, detalle: 'AliExpress + Alibaba...' });
-
-    let provData = null;
-    try {
-      const r = await fetch(`${PROVEED_URL}/proveedor`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product_name: nombre, keyword: keywordMeta, precio_venta_es: precioMedioEs }),
-        signal: AbortSignal.timeout(180000),
-      });
-      provData = await r.json();
-    } catch(e) { console.error(`[VALIDAR PROV] ${nombre}:`, e.message); }
-
-    const margenPct   = provData?.resumen?.margen_bruto_pct   || null;
-    const costeMin    = provData?.resumen?.coste_minimo        || null;
-    const margenEuros = provData?.resumen?.margen_bruto_euros  || null;
-    const semaforo    = margenPct >= 70 ? '🟢' : margenPct >= 60 ? '🟡' : margenPct !== null ? '🔴' : '❓';
-
-    const ventasPara10k = precioMedioEs ? Math.ceil(10000 / precioMedioEs) : null;
-    const ventasDia     = ventasPara10k ? Math.ceil(ventasPara10k / 30)    : null;
-
-    sseWrite(res, 'informe_manual', {
-      producto:        nombre,
-      input_original:  input,
-      semaforo,
-      keyword_meta:    keywordMeta,
-      anunciantes_usa: anunciantes,
-      pasa_meta:       pasaMeta,
-      competidores_es: viabData?.anuncios_encontrados,
-      precio_min_es:   viabData?.precios?.precio_minimo,
-      precio_medio_es: precioMedioEs,
-      precio_max_es:   viabData?.precios?.precio_maximo,
-      coste_min:       costeMin,
-      proveedor:       provData?.resumen?.proveedor_mas_barato,
-      margen_pct:      margenPct,
-      margen_euros:    margenEuros,
-      veredicto:       provData?.resumen?.veredicto,
-      ventas_para_10k: ventasPara10k,
-      ventas_dia:      ventasDia,
-      aliexpress:      provData?.proveedores?.aliexpress?.[0]  || null,
-      alibaba:         provData?.proveedores?.alibaba?.[0]     || null,
-    });
-
-    sseWrite(res, 'fin_manual', { producto: nombre, margen_pct: margenPct, semaforo });
-
+    const informe = await runProductoPipeline(res, nombre, 0, 0, 0);
+    if (informe) {
+      sseWrite(res, 'informe_manual', { ...informe, input_original: input });
+    }
+    sseWrite(res, 'fin_manual', { producto: nombre, margen_pct: informe?.margen_pct });
   } catch(e) {
-    console.error('[VALIDAR ERROR]', e.message);
     sseWrite(res, 'error', { mensaje: e.message });
-  } finally {
-    clearInterval(keepAlive);
-    res.end();
-  }
+  } finally { clearInterval(keepAlive); res.end(); }
 });
 
 app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'cazador-dashboard.html')));
+
+app.listen(PORT, () => {
+  console.log(`[SERVER] Cazador v9.0 en puerto ${PORT}`);
+  console.log(`[FASE1] ${QUERIES_CONFIG.length} hashtags × ${QUERIES_CONFIG[0].videos} vídeos = ${QUERIES_CONFIG.reduce((s,q)=>s+q.videos,0)} vídeos`);
+  console.log(`[FILTROS] views>=${FILTROS.min_views} | likes>=${FILTROS.min_likes} | fans>=${FILTROS.min_fans} | ADs: filtro propio`);
+  console.log(`[FASE2] ${FASE2_VIDEOS_POR_PRODUCTO}v/producto | min ${FASE2_MIN_VIDEOS}v ${FASE2_MIN_CREATORS}c | max ${FASE2_MAX_VALIDACIONES} validaciones | penaliza >${FASE2_PENALIZE_DAYS}d`);
+  console.log(`[SCORING] 50%creadores 25%videos 15%views 10%likes +5bonus(≥3ADs) -30%(>180d)`);
+  console.log(`[MATCHING] canonical + Fase2A gratis + Fase2B MOST_RELEVANT + filtro 180d + dedup`);
+});
