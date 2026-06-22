@@ -76,11 +76,9 @@ async function runApifyActor(actorId, input, maxWaitMs = 120_000) {
 async function buscarAliExpress(keyword) {
   try {
     const items = await runApifyActor(ACTOR_ALIEXPRESS, {
-      searchQuery:   keyword,
-      maxItems:      10,
+      keyword:       keyword,
+      maxItems:      20,
       sortBy:        'orders',
-      currency:      'EUR',
-      shipToCountry: 'ES',
     });
 
     return items
@@ -117,32 +115,45 @@ async function buscarAliExpress(keyword) {
 async function buscarAlibaba(keyword) {
   try {
     const items = await runApifyActor(ACTOR_ALIBABA, {
-      queries:  [keyword],
-      maxItems: 10,
+      keyword:  keyword,
+      maxItems: 20,
     });
 
     return items
-      .filter(i => i.price || i.priceMin || i.minPrice)
+      .filter(i => i.priceFormatted)
       .map(i => {
-        const precioMin = parseFloat(i.priceMin || i.minPrice || i.price || 0);
-        const precioMax = parseFloat(i.priceMax || i.maxPrice || precioMin);
-        const rating    = i.reviewScore || i.rating || i.supplierRating || null;
-        const ratingOk  = rating ? (rating >= RATING_MIN && rating <= RATING_MAX) : null;
+        // Parsear precio formateado: "$3.80-10.20" o "$3.50"
+        const priceStr  = (i.priceFormatted || '').replace(/[$,]/g, '');
+        const priceParts = priceStr.split('-').map(p => parseFloat(p.trim())).filter(n => !isNaN(n));
+        const precioMin = priceParts[0] || null;
+        const precioMax = priceParts[1] || precioMin;
+
+        // Parsear MOQ: "Min. order: 10 sets" → 10
+        const moqMatch = (i.minOrderQuantity || '').match(/\d+/);
+        const moq      = moqMatch ? parseInt(moqMatch[0]) : 1;
+
+        const rating   = parseFloat(i.reviewScore || i.supplierScore || 0) || null;
+        const ratingOk = rating ? (rating >= RATING_MIN && rating <= RATING_MAX) : null;
+
+        // Años proveedor: "2 yrs" → 2
+        const anosMatch = (i.goldSupplierYears || '').match(/\d+/);
+        const anos      = anosMatch ? parseInt(anosMatch[0]) : null;
+
         return {
-          titulo:          i.title || i.productName || i.name || '',
+          titulo:          i.title || '',
           precio_min:      precioMin,
           precio_max:      precioMax,
-          precio:          precioMin, // para cálculo de margen usamos el mínimo
-          moq:             parseInt(i.moq || i.minOrder || 1),
+          precio:          precioMin,
+          moq:             moq,
           rating:          rating,
           rating_ok:       ratingOk,
-          anos_proveedor:  i.supplierYears || i.yearsInBusiness || null,
-          proveedor:       i.companyName || i.supplier || '',
-          verificado:      i.tradeAssurance || i.verified || false,
+          anos_proveedor:  anos,
+          proveedor:       i.companyName || '',
+          verificado:      i.tradeAssurance || false,
           tiempoEnvio:     TIEMPOS_ES.alibaba,
           envioGratis:     false,
-          url:             i.url || i.productUrl || '',
-          imagen:          i.imageUrl || i.image || '',
+          url:             i.url || '',
+          imagen:          i.mainImage || '',
           plataforma:      'alibaba',
         };
       })
