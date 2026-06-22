@@ -75,10 +75,18 @@ async function runApifyActor(actorId, input, maxWaitMs = 120_000) {
 // ── AliExpress ────────────────────────────────────────────────────────────────
 async function buscarAliExpress(keyword) {
   try {
-    const items = await runApifyActor(ACTOR_ALIEXPRESS, {
-      searchQueries:      [keyword],
-      maxResultsPerQuery: 15,
-    });
+    const aliInput = {
+      queries:    [keyword],
+      maxResults: 15,
+      trending:   false,
+      proxyConfiguration: {
+        useApifyProxy:      true,
+        apifyProxyGroups:   ['RESIDENTIAL'],
+        apifyProxyCountry:  'US',
+      },
+    };
+    console.log('[PROVEEDOR] INPUT ALIEXPRESS:', JSON.stringify(aliInput));
+    const items = await runApifyActor(ACTOR_ALIEXPRESS, aliInput);
 
     return items
       .filter(i => i.sale_price > 0)
@@ -114,10 +122,12 @@ async function buscarAliExpress(keyword) {
 // ── Alibaba ───────────────────────────────────────────────────────────────────
 async function buscarAlibaba(keyword) {
   try {
-    const items = await runApifyActor(ACTOR_ALIBABA, {
-      keywords: keyword,
-      limit:    20,
-    });
+    const alibabaInput = {
+      search: keyword,
+      limit:  20,
+    };
+    console.log('[PROVEEDOR] INPUT ALIBABA:', JSON.stringify(alibabaInput));
+    const items = await runApifyActor(ACTOR_ALIBABA, alibabaInput);
 
     return items
       .filter(i => i.price)
