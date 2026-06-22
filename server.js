@@ -1313,4 +1313,170 @@ app.get('/cazador/stream', async (req, res) => {
   }
 });
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VALIDADOR MANUAL — GET /validar/stream?input=...
+// Acepta cualquier input: URL, nombre, texto libre
+// Claude extrae el producto y lo pasa por Meta → Viabilidad → Proveedores
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function extraerNombreProducto(input) {
+  const prompt = `You are a dropshipping product researcher.
+The user has given you the following input — it could be a URL, a product name, a landing page URL, an AliExpress URL, or any text describing a product.
+
+Input: "${input}"
+
+Your task: extract or infer the ENGLISH product name that best describes the physical product.
+Be specific (e.g. "Portable Dog Water Bottle", not "pet accessory").
+If it's a URL, infer the product from the URL path or domain context.
+
+Respond ONLY with a JSON object:
+{"product_name": "the product name in English", "confidence": "high/medium/low"}`;
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 100,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  const data = await res.json();
+  const text = (data.content?.[0]?.text || '').trim().replace(/```json|```/g, '').trim();
+  const parsed = JSON.parse(text);
+  return parsed.product_name;
+}
+
+app.get('/validar/stream', async (req, res) => {
+  const input = req.query.input?.trim();
+  if (!input) return res.status(400).end();
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.flushHeaders();
+
+  const keepAlive = setInterval(() => res.write(': ping\n\n'), 20000);
+
+  try {
+    // Extraer nombre del producto
+    sseWrite(res, 'progreso', { paso: `Analizando input: "${input.substring(0, 60)}..."` });
+    const nombre = await extraerNombreProducto(input);
+    sseWrite(res, 'producto_detectado', { producto: nombre, input_original: input });
+    sseWrite(res, 'progreso', { paso: `Producto detectado: "${nombre}" → iniciando validación` });
+
+    // CAPA 1 — META USA
+    sseWrite(res, 'capa', { capa: 2, nombre: 'Meta Ads USA', estado: 'running',
+      producto: nombre, detalle: 'Buscando anunciantes en USA...' });
+
+    let metaResult = null;
+    try {
+      const startRes = await fetch(`${META_URL}/validate-one`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product: nombre, tiktok_score: 0, creators: 0, videos: 0 }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const startData = await startRes.json();
+      if (startData.job_id) {
+        const jobResult = await pollJob(META_URL, startData.job_id, 120000);
+        metaResult = jobResult?.producto || null;
+      }
+    } catch(e) { console.error(`[VALIDAR META] ${nombre}:`, e.message); }
+
+    const pasaMeta    = metaResult?.meta?.pasa_a_trends === true;
+    const anunciantes = metaResult?.meta?.operadores_independientes ?? 0;
+    const keywordMeta = metaResult?.meta_keyword_used || nombre;
+
+    sseWrite(res, 'meta_result', {
+      producto: nombre, pasa: pasaMeta,
+      anunciantes, keyword: keywordMeta,
+      anuncios: metaResult?.meta?.total_ads_found,
+    });
+    sseWrite(res, 'progreso', { paso: `Meta: ${anunciantes} anunciantes → keyword: "${keywordMeta}"` });
+
+    // CAPA 2 — VIABILIDAD ESPAÑA
+    sseWrite(res, 'capa', { capa: 4, nombre: 'Viabilidad España', estado: 'running',
+      producto: nombre, detalle: 'Buscando precios en España...' });
+
+    let viabData = null;
+    try {
+      const r = await fetch(`${META_URL}/viabilidad`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_name: nombre, meta_keyword: keywordMeta, country: 'ES', days: 7 }),
+        signal: AbortSignal.timeout(180000),
+      });
+      viabData = await r.json();
+    } catch(e) { console.error(`[VALIDAR VIAB] ${nombre}:`, e.message); }
+
+    const precioMedioEs = viabData?.precios?.precio_medio || null;
+    sseWrite(res, 'viabilidad_result', {
+      producto: nombre,
+      competidores:     viabData?.anuncios_encontrados,
+      precio_min:       viabData?.precios?.precio_minimo,
+      precio_medio:     precioMedioEs,
+      precio_max:       viabData?.precios?.precio_maximo,
+      precio_medio_fmt: viabData?.precios?.precio_medio_fmt,
+    });
+
+    // CAPA 3 — PROVEEDORES
+    sseWrite(res, 'capa', { capa: 5, nombre: 'Proveedores', estado: 'running',
+      producto: nombre, detalle: 'AliExpress + Alibaba...' });
+
+    let provData = null;
+    try {
+      const r = await fetch(`${PROVEED_URL}/proveedor`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_name: nombre, keyword: keywordMeta, precio_venta_es: precioMedioEs }),
+        signal: AbortSignal.timeout(180000),
+      });
+      provData = await r.json();
+    } catch(e) { console.error(`[VALIDAR PROV] ${nombre}:`, e.message); }
+
+    const margenPct   = provData?.resumen?.margen_bruto_pct   || null;
+    const costeMin    = provData?.resumen?.coste_minimo        || null;
+    const margenEuros = provData?.resumen?.margen_bruto_euros  || null;
+    const semaforo    = margenPct >= 70 ? '🟢' : margenPct >= 60 ? '🟡' : margenPct !== null ? '🔴' : '❓';
+
+    const ventasPara10k = precioMedioEs ? Math.ceil(10000 / precioMedioEs) : null;
+    const ventasDia     = ventasPara10k ? Math.ceil(ventasPara10k / 30)    : null;
+
+    sseWrite(res, 'informe_manual', {
+      producto:        nombre,
+      input_original:  input,
+      semaforo,
+      keyword_meta:    keywordMeta,
+      anunciantes_usa: anunciantes,
+      pasa_meta:       pasaMeta,
+      competidores_es: viabData?.anuncios_encontrados,
+      precio_min_es:   viabData?.precios?.precio_minimo,
+      precio_medio_es: precioMedioEs,
+      precio_max_es:   viabData?.precios?.precio_maximo,
+      coste_min:       costeMin,
+      proveedor:       provData?.resumen?.proveedor_mas_barato,
+      margen_pct:      margenPct,
+      margen_euros:    margenEuros,
+      veredicto:       provData?.resumen?.veredicto,
+      ventas_para_10k: ventasPara10k,
+      ventas_dia:      ventasDia,
+      aliexpress:      provData?.proveedores?.aliexpress?.[0]  || null,
+      alibaba:         provData?.proveedores?.alibaba?.[0]     || null,
+    });
+
+    sseWrite(res, 'fin_manual', { producto: nombre, margen_pct: margenPct, semaforo });
+
+  } catch(e) {
+    console.error('[VALIDAR ERROR]', e.message);
+    sseWrite(res, 'error', { mensaje: e.message });
+  } finally {
+    clearInterval(keepAlive);
+    res.end();
+  }
+});
+
 app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'cazador-dashboard.html')));

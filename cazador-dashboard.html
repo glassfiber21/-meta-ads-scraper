@@ -178,6 +178,20 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
   <div class="empty-state" id="empty">Los productos aparecerán aquí en tiempo real conforme avance el pipeline.</div>
 </div>
 
+<!-- VALIDADOR MANUAL -->
+<div style="max-width:960px;margin:0 auto;padding:0 2rem 3rem">
+  <div style="background:white;border:1px solid #e5e5e5;border-radius:12px;padding:1.5rem;margin-top:2rem">
+    <div style="font-size:13px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:1rem">🔍 Validador manual de producto</div>
+    <p style="font-size:13px;color:#888;margin-bottom:1rem">Pega una URL de AliExpress, landing de competencia, o simplemente el nombre del producto. Claude lo identifica y lo valida.</p>
+    <div style="display:flex;gap:10px">
+      <input type="text" id="validar-input" placeholder="ej. https://tiendakiwi.shop/products/funball  ó  'portable dog water bottle'" style="flex:1;padding:10px 14px;border:1px solid #ddd;border-radius:8px;font-size:14px">
+      <button onclick="lanzarValidador()" id="btn-validar" style="background:#1a1a1a;color:white;border:none;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:500;cursor:pointer;white-space:nowrap">🔍 Validar</button>
+    </div>
+    <div style="font-size:12px;font-family:monospace;color:#888;background:#f9f9f9;border-radius:8px;padding:10px;margin-top:10px;max-height:80px;overflow-y:auto;display:none" id="validar-log"></div>
+  </div>
+  <div id="validar-resultado"></div>
+</div>
+
 <script>
 const embudo = { tiktok: 0, meta: 0, trends: 0, final: 0 };
 let rankN = 0;
@@ -380,6 +394,108 @@ function reordenar() {
   cards.sort((a, b) => parseFloat(b.dataset.margen||0) - parseFloat(a.dataset.margen||0));
   cards.forEach((c, i) => { const r = c.querySelector('.card-rank'); if (r) r.textContent = i+1; list.appendChild(c); });
   setText('ganadores-title', `Productos ganadores (${cards.length}) · ordenados por margen`);
+}
+
+// ── VALIDADOR MANUAL ─────────────────────────────────────────────────────────
+function lanzarValidador() {
+  const input = document.getElementById('validar-input').value.trim();
+  if (!input) return;
+
+  const btn     = document.getElementById('btn-validar');
+  const logEl   = document.getElementById('validar-log');
+  const resEl   = document.getElementById('validar-resultado');
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Validando...';
+  logEl.style.display = 'block';
+  logEl.innerHTML = '';
+  resEl.innerHTML = '';
+
+  const es = new EventSource(`/validar/stream?input=${encodeURIComponent(input)}`);
+
+  function vlog(msg) {
+    logEl.innerHTML += `<div>${new Date().toLocaleTimeString()} ${msg}</div>`;
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  es.addEventListener('progreso',          e => vlog(JSON.parse(e.data).paso));
+  es.addEventListener('producto_detectado', e => {
+    const d = JSON.parse(e.data);
+    vlog(`✅ Producto identificado: "${d.producto}"`);
+  });
+  es.addEventListener('meta_result', e => {
+    const d = JSON.parse(e.data);
+    vlog(`[Meta] ${d.anunciantes} anunciantes · keyword: "${d.keyword}"`);
+  });
+  es.addEventListener('viabilidad_result', e => {
+    const d = JSON.parse(e.data);
+    vlog(`[Viabilidad ES] ${d.competidores||0} competidores · precio medio: ${d.precio_medio_fmt||'—'}`);
+  });
+  es.addEventListener('capa', e => {
+    const d = JSON.parse(e.data);
+    vlog(`[Capa ${d.capa}] ${d.nombre}: ${d.detalle}`);
+  });
+
+  es.addEventListener('informe_manual', e => {
+    const d = JSON.parse(e.data);
+    const margenColor = d.margen_pct >= 70 ? '#3B6D11' : d.margen_pct >= 60 ? '#854F0B' : '#A32D2D';
+    const metaBadge   = d.pasa_meta
+      ? `<span style="background:#EAF3DE;color:#3B6D11;padding:2px 8px;border-radius:4px;font-size:12px">✅ ${d.anunciantes_usa} anunciantes</span>`
+      : `<span style="background:#FCEBEB;color:#A32D2D;padding:2px 8px;border-radius:4px;font-size:12px">❌ ${d.anunciantes_usa} anunciantes</span>`;
+
+    resEl.innerHTML = `
+    <div style="background:white;border:1px solid #e5e5e5;border-radius:12px;margin-top:1rem;overflow:hidden">
+      <div style="padding:1rem 1.2rem;border-bottom:1px solid #f5f5f5;display:flex;align-items:center;gap:10px">
+        <span style="font-size:22px">${d.semaforo}</span>
+        <div style="flex:1">
+          <div style="font-size:15px;font-weight:600">${d.producto}</div>
+          <div style="font-size:12px;color:#aaa;margin-top:2px">${d.input_original?.substring(0,80)}</div>
+        </div>
+        <div style="font-size:13px;font-weight:500;color:${margenColor}">${d.veredicto||'—'}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr)">
+        <div style="padding:0.8rem 1.2rem;border-right:1px solid #f5f5f5">
+          <div style="font-size:10px;font-weight:600;color:#bbb;text-transform:uppercase;margin-bottom:6px">📢 Meta USA</div>
+          <div style="font-size:13px;margin-bottom:4px">${metaBadge}</div>
+          <div style="font-size:12px;color:#888;margin-top:6px">Keyword: <strong>${d.keyword_meta||'—'}</strong></div>
+        </div>
+        <div style="padding:0.8rem 1.2rem;border-right:1px solid #f5f5f5">
+          <div style="font-size:10px;font-weight:600;color:#bbb;text-transform:uppercase;margin-bottom:6px">🇪🇸 España</div>
+          <div style="font-size:12px;color:#888"><span style="color:#1a1a1a;font-weight:500">${d.competidores_es??'—'}</span> competidores</div>
+          <div style="font-size:12px;color:#888;margin-top:3px">Min: <strong>${fmt(d.precio_min_es)}</strong> · Med: <strong>${fmt(d.precio_medio_es)}</strong> · Max: <strong>${fmt(d.precio_max_es)}</strong></div>
+        </div>
+        <div style="padding:0.8rem 1.2rem">
+          <div style="font-size:10px;font-weight:600;color:#bbb;text-transform:uppercase;margin-bottom:6px">📦 Proveedores</div>
+          <div style="font-size:12px;color:#888">Mejor: <strong>${d.proveedor||'—'}</strong></div>
+          <div style="font-size:12px;color:#888;margin-top:3px">Coste: <strong style="color:#3B6D11">${fmt(d.coste_min)}</strong></div>
+        </div>
+      </div>
+      <div style="padding:0.8rem 1.2rem;background:#fafafa;border-top:1px solid #f0f0f0;display:flex;align-items:center;gap:16px">
+        <div>
+          <div style="font-size:11px;color:#aaa">Margen bruto</div>
+          <div style="font-size:22px;font-weight:700;color:${margenColor}">${d.margen_pct!==null?d.margen_pct+'%':'—'}</div>
+        </div>
+        <div style="margin-left:auto;text-align:right;font-size:12px;color:#888">
+          Para 10.000 €/mes<br>
+          <strong style="font-size:14px;color:#1a1a1a">${d.ventas_dia?d.ventas_dia+' ventas/día':'—'}</strong>
+        </div>
+      </div>
+    </div>`;
+  });
+
+  es.addEventListener('fin_manual', e => {
+    btn.disabled = false;
+    btn.textContent = '🔍 Validar';
+    es.close();
+  });
+
+  es.addEventListener('error', e => {
+    try { vlog('❌ Error: ' + JSON.parse(e.data).mensaje); } catch(_) {}
+    btn.disabled = false;
+    btn.textContent = '🔍 Validar';
+    es.close();
+  });
+  es.onerror = () => { btn.disabled = false; btn.textContent = '🔍 Validar'; es.close(); };
 }
 
 // Detectar quarter
