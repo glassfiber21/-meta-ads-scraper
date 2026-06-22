@@ -76,8 +76,8 @@ async function runApifyActor(actorId, input, maxWaitMs = 120_000) {
 async function buscarAliExpress(keyword) {
   try {
     const items = await runApifyActor(ACTOR_ALIEXPRESS, {
-      search: keyword,
-      limit:  20,
+      searchQueries: [keyword],
+      limit:         20,
     });
 
     return items
@@ -119,27 +119,30 @@ async function buscarAlibaba(keyword) {
     });
 
     return items
-      .filter(i => i.priceFormatted)
+      .filter(i => i.price)
       .map(i => {
-        // Parsear precio formateado: "$3.80-10.20" o "$3.50"
-        const priceStr  = (i.priceFormatted || '').replace(/[$,]/g, '');
+        // Parsear precio: "$3.50" o "$3.80-10.20"
+        const priceStr   = (i.price || '').replace(/[$,]/g, '');
         const priceParts = priceStr.split('-').map(p => parseFloat(p.trim())).filter(n => !isNaN(n));
-        const precioMin = priceParts[0] || null;
-        const precioMax = priceParts[1] || precioMin;
+        const precioMin  = priceParts[0] || null;
+        const precioMax  = priceParts[1] || precioMin;
 
         // Parsear MOQ: "Min. order: 10 sets" → 10
-        const moqMatch = (i.minOrderQuantity || '').match(/\d+/);
+        const moqMatch = (i.moq || '').match(/\d+/);
         const moq      = moqMatch ? parseInt(moqMatch[0]) : 1;
 
-        const rating   = parseFloat(i.reviewScore || i.supplierScore || 0) || null;
+        const rating   = parseFloat(i.reviewScore || 0) || null;
         const ratingOk = rating ? (rating >= RATING_MIN && rating <= RATING_MAX) : null;
 
-        // Años proveedor: "2 yrs" → 2
+        // Años proveedor: "3 yrs" → 3
         const anosMatch = (i.goldSupplierYears || '').match(/\d+/);
         const anos      = anosMatch ? parseInt(anosMatch[0]) : null;
 
+        // Limpiar título de HTML tags
+        const titulo = (i.title || '').replace(/<[^>]+>/g, '').trim();
+
         return {
-          titulo:          i.title || '',
+          titulo:          titulo,
           precio_min:      precioMin,
           precio_max:      precioMax,
           precio:          precioMin,
@@ -148,10 +151,10 @@ async function buscarAlibaba(keyword) {
           rating_ok:       ratingOk,
           anos_proveedor:  anos,
           proveedor:       i.companyName || '',
-          verificado:      i.tradeAssurance || false,
+          verificado:      false,
           tiempoEnvio:     TIEMPOS_ES.alibaba,
           envioGratis:     false,
-          url:             i.url || '',
+          url:             i.productUrl || '',
           imagen:          i.mainImage || '',
           plataforma:      'alibaba',
         };
