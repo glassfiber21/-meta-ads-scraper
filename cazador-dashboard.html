@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cazador de Productos Ganadores</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #1a1a1a; }
+
+.header { background: white; border-bottom: 1px solid #e5e5e5; padding: 1.2rem 2rem; display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 100; }
+.header-logo { width: 36px; height: 36px; background: #1a1a1a; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+.header-title { font-size: 16px; font-weight: 600; }
+.header-sub { font-size: 13px; color: #888; }
+.header-badge { margin-left: auto; background: #EAF3DE; color: #3B6D11; font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 20px; }
+
+.hero { background: white; border-bottom: 1px solid #e5e5e5; padding: 3rem 2rem; text-align: center; }
+.hero h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+.hero p { font-size: 15px; color: #666; margin-bottom: 2rem; max-width: 500px; margin-left: auto; margin-right: auto; }
+.quarter-badge { display: inline-block; background: #f5f5f5; border: 1px solid #e5e5e5; border-radius: 20px; padding: 6px 16px; font-size: 13px; color: #666; margin-bottom: 2rem; }
+.btn-cazar { background: #1a1a1a; color: white; border: none; border-radius: 10px; padding: 16px 40px; font-size: 16px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 10px; }
+.btn-cazar:hover { background: #333; }
+.btn-cazar:disabled { background: #999; cursor: not-allowed; }
+.hero-stats { display: flex; justify-content: center; gap: 2rem; margin-top: 1.5rem; font-size: 13px; color: #999; }
+
+.main { max-width: 960px; margin: 0 auto; padding: 2rem; }
+
+/* Progress capas */
+.capas-track { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 1rem; display: none; }
+.capas-track.visible { display: grid; }
+.capa-pill { background: white; border: 1px solid #e5e5e5; border-radius: 8px; padding: 10px 8px; text-align: center; }
+.capa-pill .num { font-weight: 700; font-size: 18px; color: #ddd; margin-bottom: 2px; }
+.capa-pill .name { font-size: 11px; color: #aaa; }
+.capa-pill.running { border-color: #f0a500; background: #FFFBF0; }
+.capa-pill.running .num { color: #f0a500; }
+.capa-pill.done { border-color: #3B6D11; background: #EAF3DE; }
+.capa-pill.done .num { color: #3B6D11; }
+
+/* Embudo stats */
+.embudo-bar { background: white; border: 1px solid #e5e5e5; border-radius: 10px; padding: 12px 16px; margin-bottom: 1rem; display: none; }
+.embudo-bar.visible { display: flex; align-items: center; gap: 8px; font-size: 13px; flex-wrap: wrap; }
+.embudo-step { display: flex; align-items: center; gap: 6px; }
+.embudo-count { font-weight: 700; }
+.embudo-arrow { color: #ccc; }
+.embudo-label { color: #888; }
+
+/* Log */
+.log-box { background: white; border: 1px solid #e5e5e5; border-radius: 10px; padding: 1rem; font-size: 12px; font-family: monospace; color: #555; max-height: 100px; overflow-y: auto; margin-bottom: 1.5rem; display: none; }
+.log-box.visible { display: block; }
+.log-line { padding: 1px 0; }
+.log-ok { color: #3B6D11; }
+.log-skip { color: #A32D2D; }
+.log-info { color: #555; }
+
+.spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #f0a500; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Section titles */
+.section-title { font-size: 12px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin: 1.5rem 0 0.8rem; }
+
+/* Product cards */
+.product-card { background: white; border: 1px solid #e5e5e5; border-radius: 12px; margin-bottom: 1rem; overflow: hidden; }
+.product-card.loading .loading-bar { height: 3px; background: linear-gradient(90deg,#f0a500,#ffce54,#f0a500); background-size:200%; animation: shimmer 1.5s infinite; }
+@keyframes shimmer { 0%{background-position:200%} 100%{background-position:-200%} }
+
+.card-header { padding: 1rem 1.2rem; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #f5f5f5; }
+.card-rank { width: 26px; height: 26px; background: #1a1a1a; color: white; border-radius: 6px; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.card-nombre { font-size: 15px; font-weight: 600; flex: 1; }
+.card-semaforo { font-size: 18px; }
+.card-veredicto { font-size: 12px; font-weight: 500; }
+.verde { color: #3B6D11; } .amarillo { color: #854F0B; } .rojo { color: #A32D2D; }
+
+.card-body { display: grid; grid-template-columns: repeat(3, 1fr); }
+.card-col { padding: 0.8rem 1.2rem; border-right: 1px solid #f5f5f5; }
+.card-col:last-child { border-right: none; }
+.col-title { font-size: 10px; font-weight: 600; color: #bbb; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+.metric { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px; border-bottom: 1px solid #fafafa; }
+.metric:last-child { border: none; }
+.metric .lbl { color: #aaa; }
+.metric .val { font-weight: 500; }
+.val.g { color: #3B6D11; } .val.o { color: #854F0B; } .val.r { color: #A32D2D; }
+
+.card-footer { padding: 0.8rem 1.2rem; background: #fafafa; border-top: 1px solid #f0f0f0; display: flex; align-items: center; gap: 12px; }
+.margen-big { font-size: 24px; font-weight: 700; }
+.margen-lbl { font-size: 11px; color: #aaa; }
+.ventas-box { margin-left: auto; text-align: right; font-size: 12px; color: #888; }
+.ventas-box strong { display: block; font-size: 14px; color: #1a1a1a; font-weight: 600; }
+.btn-shopify { background: #96bf48; color: white; border: none; border-radius: 8px; padding: 7px 14px; font-size: 12px; font-weight: 500; cursor: not-allowed; opacity: 0.55; }
+
+/* Descartados */
+.descartados-list { background: white; border: 1px solid #f0f0f0; border-radius: 10px; overflow: hidden; }
+.descartado-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid #fafafa; font-size: 13px; }
+.descartado-row:last-child { border: none; }
+.desc-nombre { flex: 1; color: #888; }
+.desc-capa { font-size: 11px; background: #f5f5f5; color: #aaa; border-radius: 4px; padding: 2px 6px; }
+.desc-motivo { font-size: 11px; color: #bbb; }
+
+.empty-state { text-align: center; padding: 3rem; color: #ccc; font-size: 14px; }
+
+/* Fin resumen */
+.fin-banner { background: #EAF3DE; border: 1px solid #c3e6a0; border-radius: 10px; padding: 1rem 1.5rem; margin-bottom: 1.5rem; display: none; }
+.fin-banner.visible { display: flex; align-items: center; gap: 12px; }
+.fin-text { font-size: 14px; font-weight: 500; color: #3B6D11; }
+.fin-sub { font-size: 12px; color: #5a8a3a; margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-logo">🎯</div>
+  <div>
+    <div class="header-title">Cazador de Productos Ganadores</div>
+    <div class="header-sub">TikTok → Meta → Trends → Viabilidad → Proveedores</div>
+  </div>
+  <div class="header-badge" id="q-badge">...</div>
+</div>
+
+<div class="hero">
+  <h1>🚀 Cazador de Productos Ganadores</h1>
+  <p>Pipeline de 5 capas con filtro en cascada. Solo verás productos que superen todos los filtros.</p>
+  <div class="quarter-badge" id="q-info">📅 Detectando temporada...</div>
+  <br><br>
+  <button class="btn-cazar" id="btn" onclick="launch()">🎯 Cazar productos</button>
+  <div class="hero-stats">
+    <span>30 hashtags · 150 vídeos</span>
+    <span>·</span>
+    <span>Filtro Meta ≥3 anunciantes</span>
+    <span>·</span>
+    <span>Filtro margen ≥60%</span>
+  </div>
+</div>
+
+<div class="main">
+  <!-- Capas -->
+  <div class="capas-track" id="capas-track">
+    <div class="capa-pill" id="cp1"><div class="num">1</div><div class="name">TikTok</div></div>
+    <div class="capa-pill" id="cp2"><div class="num">2</div><div class="name">Meta USA</div></div>
+    <div class="capa-pill" id="cp3"><div class="num">3</div><div class="name">Trends</div></div>
+    <div class="capa-pill" id="cp4"><div class="num">4</div><div class="name">Viabilidad ES</div></div>
+    <div class="capa-pill" id="cp5"><div class="num">5</div><div class="name">Proveedores</div></div>
+  </div>
+
+  <!-- Embudo -->
+  <div class="embudo-bar" id="embudo-bar">
+    <span class="embudo-step"><span class="embudo-count" id="e-tiktok">—</span><span class="embudo-label"> TikTok</span></span>
+    <span class="embudo-arrow">→</span>
+    <span class="embudo-step"><span class="embudo-count" id="e-meta">—</span><span class="embudo-label"> Meta</span></span>
+    <span class="embudo-arrow">→</span>
+    <span class="embudo-step"><span class="embudo-count" id="e-trends">—</span><span class="embudo-label"> Trends</span></span>
+    <span class="embudo-arrow">→</span>
+    <span class="embudo-step"><span class="embudo-count" id="e-final">—</span><span class="embudo-label"> Ganadores</span></span>
+  </div>
+
+  <!-- Log -->
+  <div class="log-box" id="log"></div>
+
+  <!-- Banner fin -->
+  <div class="fin-banner" id="fin-banner">
+    <div style="font-size:24px">✅</div>
+    <div>
+      <div class="fin-text" id="fin-text">Pipeline completado</div>
+      <div class="fin-sub" id="fin-sub"></div>
+    </div>
+  </div>
+
+  <!-- Ganadores -->
+  <div id="ganadores-section" style="display:none">
+    <div class="section-title" id="ganadores-title">Productos ganadores</div>
+    <div id="ganadores-list"></div>
+  </div>
+
+  <!-- Descartados -->
+  <div id="desc-section" style="display:none">
+    <div class="section-title">Descartados por el embudo</div>
+    <div class="descartados-list" id="desc-list"></div>
+  </div>
+
+  <div class="empty-state" id="empty">Los productos aparecerán aquí en tiempo real conforme avance el pipeline.</div>
+</div>
+
+<script>
+const embudo = { tiktok: 0, meta: 0, trends: 0, final: 0 };
+let rankN = 0;
+const descartados = [];
+let running = false;
+
+function launch() {
+  if (running) return;
+  running = true;
+  rankN = 0;
+  document.getElementById('btn').disabled = true;
+  document.getElementById('btn').innerHTML = '<span class="spinner"></span>Cazando...';
+  document.getElementById('empty').style.display = 'none';
+  document.getElementById('capas-track').classList.add('visible');
+  document.getElementById('embudo-bar').classList.add('visible');
+  document.getElementById('log').classList.add('visible');
+  document.getElementById('fin-banner').classList.remove('visible');
+  document.getElementById('ganadores-section').style.display = 'none';
+  document.getElementById('desc-section').style.display = 'none';
+  document.getElementById('ganadores-list').innerHTML = '';
+  document.getElementById('desc-list').innerHTML = '';
+  document.getElementById('log').innerHTML = '';
+  Object.assign(embudo, {tiktok:0, meta:0, trends:0, final:0});
+  updateEmbudo();
+
+  const es = new EventSource('/cazador/stream');
+
+  es.addEventListener('capa', e => {
+    const d = JSON.parse(e.data);
+    const pill = document.getElementById(`cp${d.capa}`);
+    if (pill) { pill.className = 'capa-pill ' + d.estado; pill.querySelector('.num').textContent = d.estado === 'done' ? '✓' : d.capa; }
+    log(d.producto ? `[Capa ${d.capa}] ${d.nombre} · ${d.producto}: ${d.detalle}` : `[Capa ${d.capa}] ${d.nombre}: ${d.detalle}`, 'info');
+  });
+
+  es.addEventListener('progreso', e => log(JSON.parse(e.data).paso, 'info'));
+
+  es.addEventListener('producto_tiktok', e => {
+    const d = JSON.parse(e.data);
+    embudo.tiktok++;
+    updateEmbudo();
+  });
+
+  es.addEventListener('meta_result', e => {
+    const d = JSON.parse(e.data);
+    if (d.pasa) { embudo.meta++; updateEmbudo(); }
+    log(`[Meta] ${d.producto}: ${d.anunciantes || 0} anunciantes → ${d.pasa ? '✅ PASA' : '❌ DESCARTADO'}`, d.pasa ? 'ok' : 'skip');
+  });
+
+  es.addEventListener('trends_result', e => {
+    const d = JSON.parse(e.data);
+    if (d.decision === 'pasa') { embudo.trends++; updateEmbudo(); }
+    log(`[Trends] ${d.producto}: ${d.trend_90d||'—'}/90d ${d.trend_12m||'—'}/12m ${d.phase_icon||''} → ${d.decision === 'pasa' ? '✅ PASA' : '❌ DESCARTADO'}`, d.decision === 'pasa' ? 'ok' : 'skip');
+  });
+
+  es.addEventListener('viabilidad_result', e => {
+    const d = JSON.parse(e.data);
+    log(`[Viabilidad ES] ${d.producto}: ${d.competidores||0} competidores · precio medio ${d.precio_medio_fmt||'—'}`, 'info');
+  });
+
+  es.addEventListener('proveedores_result', e => {
+    const d = JSON.parse(e.data);
+    log(`[Proveedores] ${d.producto}: ${d.proveedor||'—'} @ ${fmt(d.coste_min)} · margen ${d.margen_pct||'—'}%`, 'info');
+  });
+
+  es.addEventListener('descartado', e => {
+    const d = JSON.parse(e.data);
+    descartados.push(d);
+    renderDescartado(d);
+    log(`❌ ${d.producto} descartado en ${d.capa}: ${d.motivo}`, 'skip');
+  });
+
+  es.addEventListener('informe_producto', e => {
+    const d = JSON.parse(e.data);
+    embudo.final++;
+    updateEmbudo();
+    renderGanador(d);
+  });
+
+  es.addEventListener('fin', e => {
+    const d = JSON.parse(e.data);
+    log(`✅ Pipeline completado: ${d.total_ganadores} ganadores | ${d.embudo}`, 'ok');
+    document.getElementById('fin-banner').classList.add('visible');
+    document.getElementById('fin-text').textContent = `✅ ${d.total_ganadores} productos ganadores encontrados`;
+    document.getElementById('fin-sub').textContent = d.embudo;
+    document.getElementById('btn').disabled = false;
+    document.getElementById('btn').innerHTML = '🎯 Volver a cazar';
+    running = false;
+    reordenar();
+    es.close();
+  });
+
+  es.addEventListener('error', e => {
+    try { log('❌ Error: ' + JSON.parse(e.data).mensaje, 'skip'); } catch(_) {}
+    document.getElementById('btn').disabled = false;
+    document.getElementById('btn').innerHTML = '🎯 Cazar productos';
+    running = false;
+    es.close();
+  });
+  es.onerror = () => { running = false; document.getElementById('btn').disabled = false; document.getElementById('btn').innerHTML = '🎯 Cazar productos'; es.close(); };
+}
+
+function fmt(v, s = ' €') {
+  if (v == null || isNaN(v)) return '—';
+  return parseFloat(v).toFixed(2).replace('.', ',') + s;
+}
+function slug(n) { return n?.toLowerCase().replace(/[^a-z0-9]/g, '-') || 'p'; }
+function setText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+
+function log(msg, type = 'info') {
+  const box = document.getElementById('log');
+  const line = document.createElement('div');
+  line.className = `log-line log-${type}`;
+  line.textContent = `${new Date().toLocaleTimeString()} ${msg}`;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+function updateEmbudo() {
+  setText('e-tiktok', embudo.tiktok);
+  setText('e-meta', embudo.meta);
+  setText('e-trends', embudo.trends);
+  setText('e-final', embudo.final);
+}
+
+function renderGanador(d) {
+  document.getElementById('ganadores-section').style.display = 'block';
+  const sl = slug(d.producto);
+  const margenColor = d.margen_pct >= 70 ? 'g' : d.margen_pct >= 60 ? 'o' : 'r';
+  const trend90cls  = (d.trend_90d||'').includes('Sub') ? 'g' : (d.trend_90d||'').includes('Baj') ? 'r' : '';
+
+  const card = document.createElement('div');
+  card.className = 'product-card';
+  card.id = `card-${sl}`;
+  card.dataset.margen = d.margen_pct || 0;
+  card.innerHTML = `
+    <div class="card-header">
+      <div class="card-rank" id="rank-${sl}">${++rankN}</div>
+      <div class="card-nombre">${d.producto}</div>
+      <div class="card-semaforo">${d.semaforo || ''}</div>
+      <div class="card-veredicto ${margenColor === 'g' ? 'verde' : margenColor === 'o' ? 'amarillo' : 'rojo'}">${d.veredicto || ''}</div>
+    </div>
+    <div class="card-body">
+      <div class="card-col">
+        <div class="col-title">📱 TikTok</div>
+        <div class="metric"><span class="lbl">Vídeos</span><span class="val">${d.videos}</span></div>
+        <div class="metric"><span class="lbl">Creadores</span><span class="val">${d.creadores}</span></div>
+        <div class="metric"><span class="lbl">Hashtags</span><span class="val">${d.hashtags_origen}</span></div>
+        <div class="metric"><span class="lbl">Antigüedad</span><span class="val">${d.antiguedad_dias}d</span></div>
+        <div class="metric"><span class="lbl">Score</span><span class="val">${d.score_tiktok}</span></div>
+        <div class="metric"><span class="lbl">Keyword</span><span class="val" style="font-size:11px">${d.keyword_meta || '—'}</span></div>
+        <div class="metric"><span class="lbl">Anunc. USA</span><span class="val">${d.anunciantes_usa || '—'}</span></div>
+        <div class="metric"><span class="lbl">Trend 90d</span><span class="val ${trend90cls}">${d.trend_90d || '—'}</span></div>
+        <div class="metric"><span class="lbl">Trend 12m</span><span class="val">${d.trend_12m || '—'}</span></div>
+        <div class="metric"><span class="lbl">Fase</span><span class="val">${d.fase_icono || ''} ${d.fase_ciclo || '—'}</span></div>
+      </div>
+      <div class="card-col">
+        <div class="col-title">🇪🇸 Mercado España</div>
+        <div class="metric"><span class="lbl">Competidores</span><span class="val">${d.competidores_es ?? '—'}</span></div>
+        <div class="metric"><span class="lbl">Precio mínimo</span><span class="val">${fmt(d.precio_min_es)}</span></div>
+        <div class="metric"><span class="lbl">Precio medio</span><span class="val">${fmt(d.precio_medio_es)}</span></div>
+        <div class="metric"><span class="lbl">Precio máximo</span><span class="val">${fmt(d.precio_max_es)}</span></div>
+      </div>
+      <div class="card-col">
+        <div class="col-title">📦 Proveedores</div>
+        <div class="metric"><span class="lbl">Mejor proveedor</span><span class="val">${d.proveedor || '—'}</span></div>
+        <div class="metric"><span class="lbl">Coste mínimo</span><span class="val g">${fmt(d.coste_min)}</span></div>
+        ${d.aliexpress ? `<div class="metric"><span class="lbl">AliExpress</span><span class="val">${fmt(d.aliexpress.precio)} · ⭐${d.aliexpress.rating || '—'}</span></div>` : ''}
+        ${d.alibaba ? `<div class="metric"><span class="lbl">Alibaba</span><span class="val">${fmt(d.alibaba.precio_min)} · MOQ ${d.alibaba.moq}</span></div>` : ''}
+        <div class="metric"><span class="lbl">% del pico</span><span class="val">${d.pct_pico ? d.pct_pico + '%' : '—'}</span></div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <div>
+        <div class="margen-lbl">Margen bruto estimado</div>
+        <div class="margen-big ${margenColor === 'g' ? 'verde' : margenColor === 'o' ? 'amarillo' : 'rojo'}">${d.margen_pct ? d.margen_pct + '%' : '—'}</div>
+      </div>
+      <div class="ventas-box">
+        <span>Para 10.000 €/mes</span>
+        <strong>${d.ventas_dia ? d.ventas_dia + ' ventas/día' : '—'}</strong>
+        <span style="font-size:11px;color:#bbb">${d.ventas_para_10k ? '(' + d.ventas_para_10k + ' al mes)' : ''}</span>
+      </div>
+      <button class="btn-shopify" title="Próximamente — Robot Creador de Tienda Online" disabled>🛒 Crear tienda Shopify</button>
+    </div>`;
+
+  document.getElementById('ganadores-list').appendChild(card);
+  setText('ganadores-title', `Productos ganadores (${rankN})`);
+}
+
+function renderDescartado(d) {
+  document.getElementById('desc-section').style.display = 'block';
+  const row = document.createElement('div');
+  row.className = 'descartado-row';
+  row.innerHTML = `<span style="color:#ddd">✗</span><span class="desc-nombre">${d.producto}</span><span class="desc-capa">${d.capa}</span><span class="desc-motivo">${d.motivo}</span>`;
+  document.getElementById('desc-list').appendChild(row);
+}
+
+function reordenar() {
+  const list = document.getElementById('ganadores-list');
+  const cards = Array.from(list.querySelectorAll('.product-card'));
+  cards.sort((a, b) => parseFloat(b.dataset.margen||0) - parseFloat(a.dataset.margen||0));
+  cards.forEach((c, i) => { const r = c.querySelector('.card-rank'); if (r) r.textContent = i+1; list.appendChild(c); });
+  setText('ganadores-title', `Productos ganadores (${cards.length}) · ordenados por margen`);
+}
+
+// Detectar quarter
+const month = new Date().getMonth() + 1;
+const q = month<=3?'Q1 · Invierno':month<=6?'Q2 · Primavera':month<=9?'Q3 · Verano':'Q4 · Navidad';
+document.getElementById('q-info').textContent = `📅 ${q} — hashtags optimizados`;
+document.getElementById('q-badge').textContent = q;
+</script>
+</body>
+</html>

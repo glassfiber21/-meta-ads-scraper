@@ -125,7 +125,7 @@ const AD_SALE_KEYWORDS = [
 const FASE2_VIDEOS_POR_PRODUCTO = 10;  // coste controlado
 const FASE2_MIN_VIDEOS = 2;            // mínimo vídeos virales para aprobar
 const FASE2_MIN_CREATORS = 2;          // mínimo creadores distintos para aprobar
-const FASE2_MAX_VALIDACIONES = 40;     // máx señales a validar en Fase 2B por run
+const FASE2_MAX_VALIDACIONES = 100;    // valida TODAS las señales — sin límite artificial (máx protección 100)
 const FASE2_PENALIZE_DAYS = 180;       // penalizar si oldest_days > 180
 
 // ── Job queue ─────────────────────────────────────────────────────────────────
@@ -1017,3 +1017,298 @@ app.listen(PORT, () => {
   console.log(`[SCORING] 50%creadores 25%videos 15%views 10%likes +5bonus(≥3ADs) -30%(>180d)`);
   console.log(`[MATCHING] canonical + Fase2A gratis + Fase2B MOST_RELEVANT + filtro 180d + dedup`);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PIPELINE UNIFICADO — SSE streaming en tiempo real
+// Embudo en cascada con filtros reales según campos exactos de cada servicio
+// ─────────────────────────────────────────────────────────────────────────────
+
+const META_URL    = process.env.META_URL    || 'https://meta-ads-production-c504.up.railway.app';
+const TRENDS_URL  = process.env.TRENDS_URL  || 'https://google-trends-production.up.railway.app';
+const PROVEED_URL = process.env.PROVEED_URL || 'https://proveedores-production.up.railway.app';
+
+const FILTRO_MARGEN_MIN = 60; // % mínimo margen bruto para aparecer en informe final
+
+function sseWrite(res, event, data) {
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+function decideTrendsFilter(trends) {
+  if (!trends) return 'pasa';
+  const t90  = (trends.trend_90d  || '').toLowerCase();
+  const t12  = (trends.trend_12m  || '').toLowerCase();
+  const pico = trends.vs_peak?.pctOfPeak ?? 100;
+  if (t90.includes('bajando') && t12.includes('bajando') && pico < 50) return 'descarta';
+  return 'pasa';
+}
+
+// Polling de job asíncrono (para /validate-one de Meta)
+async function pollJob(baseUrl, jobId, maxMs = 120000) {
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    await new Promise(r => setTimeout(r, 4000));
+    const r = await fetch(`${baseUrl}/job-status/${jobId}`);
+    const d = await r.json();
+    if (d.status === 'done')   return d.result;
+    if (d.status === 'error')  throw new Error(d.result?.error || 'Job error');
+  }
+  throw new Error('Timeout polling job');
+}
+
+app.get('/cazador/stream', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.flushHeaders();
+
+  const keepAlive = setInterval(() => res.write(': ping\n\n'), 20000);
+
+  const stats = { tiktok: 0, meta_entran: 0, meta_pasan: 0, trends_pasan: 0, final: 0 };
+
+  try {
+    // ── CAPA 1: TIKTOK ───────────────────────────────────────────────────────
+    sseWrite(res, 'capa', { capa: 1, nombre: 'TikTok Cazador', estado: 'running',
+      detalle: `${QUERIES_CONFIG.length} hashtags × 5 vídeos = 150 vídeos` });
+
+    const hashtagStats = {};
+    QUERIES_CONFIG.forEach(q => { hashtagStats[q.query] = { total: q.videos, passed: 0, identified: 0, validated: 0 }; });
+
+    const rawVideos = [];
+    for (let i = 0; i < QUERIES_CONFIG.length; i++) {
+      const { query, videos } = QUERIES_CONFIG[i];
+      sseWrite(res, 'progreso', { capa: 1, paso: `[${i+1}/${QUERIES_CONFIG.length}] ${query}` });
+      try { rawVideos.push(...await scrapeHashtag(query, videos)); } catch(e) { console.error(`[${query}]`, e.message); }
+    }
+
+    const filtrados = filtrarVideos(rawVideos, hashtagStats);
+    sseWrite(res, 'progreso', { capa: 1, paso: `${filtrados.length} vídeos filtrados → Claude identificando...` });
+    const productMap = await identificarProductos(filtrados, hashtagStats);
+    const { confirmados, senales } = agrupar(filtrados, productMap);
+
+    // Fase 2B — TODAS las señales (máx FASE2_MAX_VALIDACIONES = 100)
+    const validados = [];
+    for (const senal of senales.slice(0, FASE2_MAX_VALIDACIONES)) {
+      sseWrite(res, 'progreso', { capa: 1, paso: `Fase 2B: "${senal.product_name}"` });
+      const r = await validarSenal(senal, hashtagStats); if (r) validados.push(r);
+    }
+
+    const productosTikTok = [...confirmados, ...validados].sort((a, b) => b.score - a.score);
+    stats.tiktok = productosTikTok.length;
+    stats.meta_entran = productosTikTok.length;
+
+    sseWrite(res, 'capa', { capa: 1, nombre: 'TikTok Cazador', estado: 'done',
+      detalle: `${productosTikTok.length} productos → pasan a Meta` });
+
+    for (const p of productosTikTok) {
+      sseWrite(res, 'producto_tiktok', {
+        product_name: p.product_name, score: p.score,
+        video_count: p.video_count, unique_creators: p.unique_creators,
+        hashtag_count: p.hashtag_count, oldest_days: p.oldest_days,
+      });
+    }
+
+    // ── CAPAS 2-5 EN CASCADA ─────────────────────────────────────────────────
+    const informesFinal = [];
+
+    for (const producto of productosTikTok) {
+      const nombre = producto.product_name;
+
+      // CAPA 2 — META ADS USA (job asíncrono)
+      sseWrite(res, 'capa', { capa: 2, nombre: 'Meta Ads USA', estado: 'running',
+        producto: nombre, detalle: 'Buscando anunciantes en USA...' });
+
+      let metaResult = null;
+      try {
+        const startRes = await fetch(`${META_URL}/validate-one`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            product:      nombre,
+            tiktok_score: producto.score,
+            creators:     producto.unique_creators,
+            videos:       producto.video_count,
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        const startData = await startRes.json();
+        if (startData.job_id) {
+          const jobResult = await pollJob(META_URL, startData.job_id, 120000);
+          metaResult = jobResult?.producto || null;
+        }
+      } catch(e) { console.error(`[META] ${nombre}:`, e.message); }
+
+      // Campos reales: metaResult.meta.pasa_a_trends, metaResult.meta.operadores_independientes
+      const pasaMeta     = metaResult?.meta?.pasa_a_trends === true;
+      const anunciantes  = metaResult?.meta?.operadores_independientes ?? 0;
+      const keywordMeta  = metaResult?.meta_keyword_used || nombre;
+
+      sseWrite(res, 'meta_result', {
+        producto: nombre, pasa: pasaMeta,
+        anunciantes, keyword: keywordMeta,
+        anuncios: metaResult?.meta?.total_ads_found,
+      });
+
+      if (!pasaMeta) {
+        sseWrite(res, 'descartado', { producto: nombre, capa: 'Meta',
+          motivo: `${anunciantes} anunciantes independientes (mín 3)` });
+        continue;
+      }
+      stats.meta_pasan++;
+
+      // CAPA 3 — GOOGLE TRENDS
+      sseWrite(res, 'capa', { capa: 3, nombre: 'Google Trends', estado: 'running',
+        producto: nombre, detalle: `Analizando "${keywordMeta}"...` });
+
+      let trendsData = null;
+      try {
+        const r = await fetch(
+          `${TRENDS_URL}/test-trends?keyword=${encodeURIComponent(keywordMeta)}&geo=US`,
+          { signal: AbortSignal.timeout(90000) }
+        );
+        trendsData = await r.json();
+      } catch(e) { console.error(`[TRENDS] ${nombre}:`, e.message); }
+
+      const decisionTrends = decideTrendsFilter(trendsData);
+      sseWrite(res, 'trends_result', {
+        producto: nombre, decision: decisionTrends,
+        trend_90d:   trendsData?.trend_90d,
+        trend_12m:   trendsData?.trend_12m,
+        phase:       trendsData?.phase,
+        phase_icon:  trendsData?.phase_icon,
+        pct_of_peak: trendsData?.vs_peak?.pctOfPeak,
+        semaforo:    trendsData?.semaforo,
+      });
+
+      if (decisionTrends === 'descarta') {
+        sseWrite(res, 'descartado', { producto: nombre, capa: 'Trends',
+          motivo: `${trendsData?.trend_90d}/90d + ${trendsData?.trend_12m}/12m + ${trendsData?.vs_peak?.pctOfPeak||0}% del pico` });
+        continue;
+      }
+      stats.trends_pasan++;
+
+      // CAPA 4 — VIABILIDAD ESPAÑA (no filtra, solo enriquece)
+      sseWrite(res, 'capa', { capa: 4, nombre: 'Viabilidad España', estado: 'running',
+        producto: nombre, detalle: 'Precios de competencia en España...' });
+
+      let viabData = null;
+      try {
+        const r = await fetch(`${META_URL}/viabilidad`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            product_name: nombre,
+            meta_keyword: keywordMeta,
+            country: 'ES', days: 7,
+          }),
+          signal: AbortSignal.timeout(180000),
+        });
+        viabData = await r.json();
+      } catch(e) { console.error(`[VIAB] ${nombre}:`, e.message); }
+
+      const precioMedioEs = viabData?.precios?.precio_medio || null;
+      sseWrite(res, 'viabilidad_result', {
+        producto: nombre,
+        competidores:     viabData?.anuncios_encontrados,
+        precio_min:       viabData?.precios?.precio_minimo,
+        precio_medio:     precioMedioEs,
+        precio_max:       viabData?.precios?.precio_maximo,
+        precio_medio_fmt: viabData?.precios?.precio_medio_fmt,
+      });
+
+      // CAPA 5 — PROVEEDORES
+      sseWrite(res, 'capa', { capa: 5, nombre: 'Proveedores', estado: 'running',
+        producto: nombre, detalle: 'AliExpress + Alibaba...' });
+
+      let provData = null;
+      try {
+        const r = await fetch(`${PROVEED_URL}/proveedor`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            product_name:    nombre,
+            keyword:         keywordMeta,
+            precio_venta_es: precioMedioEs,
+          }),
+          signal: AbortSignal.timeout(180000),
+        });
+        provData = await r.json();
+      } catch(e) { console.error(`[PROV] ${nombre}:`, e.message); }
+
+      const margenPct   = provData?.resumen?.margen_bruto_pct   || null;
+      const margenEuros = provData?.resumen?.margen_bruto_euros  || null;
+      const costeMin    = provData?.resumen?.coste_minimo        || null;
+
+      sseWrite(res, 'proveedores_result', {
+        producto: nombre,
+        coste_min:    costeMin,
+        proveedor:    provData?.resumen?.proveedor_mas_barato,
+        margen_pct:   margenPct,
+        margen_euros: margenEuros,
+        veredicto:    provData?.resumen?.veredicto,
+      });
+
+      // FILTRO FINAL — margen < 60%
+      if (margenPct !== null && margenPct < FILTRO_MARGEN_MIN) {
+        sseWrite(res, 'descartado', { producto: nombre, capa: 'Margen',
+          motivo: `Margen ${margenPct}% < ${FILTRO_MARGEN_MIN}% mínimo` });
+        continue;
+      }
+
+      // ── INFORME FINAL ────────────────────────────────────────────────────
+      stats.final++;
+      const ventasPara10k = precioMedioEs ? Math.ceil(10000 / precioMedioEs) : null;
+      const ventasDia     = ventasPara10k ? Math.ceil(ventasPara10k / 30)    : null;
+      const semaforo      = margenPct >= 70 ? '🟢' : margenPct >= 60 ? '🟡' : '🔴';
+
+      const informe = {
+        producto:        nombre,
+        semaforo,
+        score_tiktok:    producto.score,
+        videos:          producto.video_count,
+        creadores:       producto.unique_creators,
+        hashtags_origen: producto.hashtag_count,
+        antiguedad_dias: producto.oldest_days,
+        keyword_meta:    keywordMeta,
+        anunciantes_usa: anunciantes,
+        trend_90d:       trendsData?.trend_90d,
+        trend_12m:       trendsData?.trend_12m,
+        fase_ciclo:      trendsData?.phase,
+        fase_icono:      trendsData?.phase_icon,
+        pct_pico:        trendsData?.vs_peak?.pctOfPeak,
+        semaforo_trends: trendsData?.semaforo,
+        competidores_es: viabData?.anuncios_encontrados,
+        precio_min_es:   viabData?.precios?.precio_minimo,
+        precio_medio_es: precioMedioEs,
+        precio_max_es:   viabData?.precios?.precio_maximo,
+        coste_min:       costeMin,
+        proveedor:       provData?.resumen?.proveedor_mas_barato,
+        margen_pct:      margenPct,
+        margen_euros:    margenEuros,
+        veredicto:       provData?.resumen?.veredicto,
+        ventas_para_10k: ventasPara10k,
+        ventas_dia:      ventasDia,
+        aliexpress:      provData?.proveedores?.aliexpress?.[0]  || null,
+        alibaba:         provData?.proveedores?.alibaba?.[0]     || null,
+      };
+
+      informesFinal.push(informe);
+      sseWrite(res, 'informe_producto', informe);
+    }
+
+    informesFinal.sort((a, b) => (b.margen_pct || 0) - (a.margen_pct || 0));
+
+    sseWrite(res, 'fin', {
+      stats,
+      embudo: `TikTok ${stats.tiktok} → Meta ${stats.meta_pasan} → Trends ${stats.trends_pasan} → Ganadores ${stats.final}`,
+      total_ganadores: stats.final,
+      quarter: QUARTER,
+    });
+
+  } catch(e) {
+    console.error('[STREAM ERROR]', e.message);
+    sseWrite(res, 'error', { mensaje: e.message });
+  } finally {
+    clearInterval(keepAlive);
+    res.end();
+  }
+});
+
+app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'cazador-dashboard.html')));
