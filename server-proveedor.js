@@ -15,7 +15,7 @@ const RATING_MIN    = 4.8;
 const RATING_MAX    = 4.95;
 
 // Actores de Apify
-const ACTOR_ALIEXPRESS = 'devcake~aliexpress-products-scraper';
+const ACTOR_ALIEXPRESS = 'thirdwatch~aliexpress-product-scraper';
 const ACTOR_ALIBABA    = 'piotrv1001~alibaba-listings-scraper';
 
 // Tiempos de envío estándar a España por plataforma
@@ -76,31 +76,32 @@ async function runApifyActor(actorId, input, maxWaitMs = 120_000) {
 async function buscarAliExpress(keyword) {
   try {
     const items = await runApifyActor(ACTOR_ALIEXPRESS, {
-      searchQueries: [keyword],
-      limit:         20,
+      searchQueries:      [keyword],
+      maxResultsPerQuery: 15,
     });
 
     return items
-      .filter(i => i.price > 0)
+      .filter(i => i.sale_price > 0)
       .map(i => {
-        const rating = i.starRating || i.rating || null;
+        const rating   = i.rating || null;
         const ratingOk = rating ? (rating >= RATING_MIN && rating <= RATING_MAX) : null;
+        const envioGratis = (i.selling_points || []).some(p => p.toLowerCase().includes('free shipping'));
         return {
-          titulo:       i.title || i.name || '',
-          precio:       parseFloat(i.price) || null,
-          rating:       rating,
-          rating_ok:    ratingOk,
-          ordenes:      i.soldCount || i.orders || 0,
-          envioGratis:  i.freeShipping || false,
-          tiempoEnvio:  i.shippingTime || TIEMPOS_ES.aliexpress,
-          url:          i.url || i.productUrl || '',
-          imagen:       i.imageUrl || i.image || '',
-          vendedor:     i.storeName || i.seller || '',
-          moq:          1,
-          plataforma:   'aliexpress',
+          titulo:      i.title || '',
+          precio:      parseFloat(i.sale_price) || null,
+          rating:      rating,
+          rating_ok:   ratingOk,
+          ordenes:     i.orders_count || 0,
+          envioGratis: envioGratis,
+          tiempoEnvio: TIEMPOS_ES.aliexpress,
+          url:         i.url || '',
+          imagen:      i.image_url || '',
+          vendedor:    '',
+          moq:         1,
+          plataforma:  'aliexpress',
         };
       })
-      .filter(i => i.rating_ok !== false) // excluir ratings fuera de rango
+      .filter(i => i.rating_ok !== false)
       .sort((a, b) => (a.precio || 999) - (b.precio || 999))
       .slice(0, 5);
 
