@@ -15,7 +15,7 @@ const RATING_MIN    = 4.8;
 const RATING_MAX    = 4.95;
 
 // Actores de Apify
-const ACTOR_ALIEXPRESS = 'thirdwatch~aliexpress-product-scraper';
+const ACTOR_ALIEXPRESS = 'piotrv1001~aliexpress-listings-scraper';
 const ACTOR_ALIBABA    = 'xtracto~alibaba-search-scraper';
 
 // Tiempos de envío estándar a España por plataforma
@@ -76,9 +76,9 @@ async function runApifyActor(actorId, input, maxWaitMs = 120_000) {
 async function buscarAliExpress(keyword) {
   try {
     const items = await runApifyActor(ACTOR_ALIEXPRESS, {
-      keyword:       keyword,
+      searchKeyword: keyword,
       maxItems:      20,
-      sortBy:        'orders',
+      sortBy:        'bestMatch',
     });
 
     return items
@@ -115,7 +115,7 @@ async function buscarAliExpress(keyword) {
 async function buscarAlibaba(keyword) {
   try {
     const items = await runApifyActor(ACTOR_ALIBABA, {
-      keyword:  keyword,
+      queries:  [{ query: keyword }],
       maxItems: 20,
     });
 
