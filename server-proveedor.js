@@ -76,9 +76,8 @@ async function runApifyActor(actorId, input, maxWaitMs = 120_000) {
 async function buscarAliExpress(keyword) {
   try {
     const items = await runApifyActor(ACTOR_ALIEXPRESS, {
-      searchQueries: [keyword],
-      maxProducts:   20,
-      sortBy:        'orders',
+      search: keyword,
+      limit:  20,
     });
 
     return items
@@ -115,7 +114,7 @@ async function buscarAliExpress(keyword) {
 async function buscarAlibaba(keyword) {
   try {
     const items = await runApifyActor(ACTOR_ALIBABA, {
-      urls:     [keyword],
+      keywords: keyword,
       limit:    20,
     });
 
