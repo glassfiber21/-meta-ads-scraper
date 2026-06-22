@@ -23,42 +23,81 @@ const APIFY_API_KEY = process.env.APIFY_API_KEY || '';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 
 // ── Configuración ─────────────────────────────────────────────────────────────
-// 20 hashtags × 5 vídeos = 100 vídeos — más superficie, más categorías
-// Seleccionados por producir productos únicos y vendibles, no hauls ni tutoriales
-const QUERIES_CONFIG = [
-  // ===== MASCOTAS =====
-  // #petfinds, #cookinggadgets, #homefinds eliminados (ratio <15%, avg views bajo)
-  { query: '#petproducts',        videos: 20 },
-  { query: '#petgadgets',         videos: 20 },
-  { query: '#dogmusthaves',       videos: 20 },
-  { query: '#catproducts',        videos: 20 },
-  // ===== COCINA =====
-  // #kitchenhacks ELIMINADO — devuelve vídeos de 2021-2022 (4 años antigüedad, 0% ratio)
-  // #cookinggadgets ELIMINADO — ratio 13%, mayoría ads puros
-  { query: '#kitchengadgets',     videos: 20 },
-  { query: '#kitchenessentials',  videos: 20 },
-  { query: '#kitchenorganization',videos: 20 },
-  // ===== HOGAR / ORGANIZACIÓN =====
-  // #storageideas ELIMINADO — ratio 20%, avg views 0.1M
-  // #homefinds ELIMINADO — ratio 13%, avg views 0.4M
-  { query: '#storagehacks',       videos: 20 },
-  { query: '#closetorganization', videos: 20 },
-  { query: '#organizationhacks',  videos: 20 },
-  { query: '#homeorganization',   videos: 20 }, // NUEVO — alta demanda orgánica
-  // ===== TECH =====
-  // #officegadgets ELIMINADO — ratio 27%, avg views 0.1M muy bajo
-  { query: '#techgadgets',        videos: 20 },
-  { query: '#gadgets',            videos: 20 }, // ⭐ mejor ratio 80%
-  { query: '#gadgetreview',       videos: 20 }, // NUEVO — contenido de reseña = producto claro
-  // ===== LIMPIEZA =====
-  { query: '#cleaninggadgets',    videos: 20 },
-  { query: '#cleaningproducts',   videos: 20 }, // ⭐ mejor validados (2 tarjetas)
-  { query: '#cleaninghacks',      videos: 20 }, // NUEVO — alto volumen orgánico
-  // ===== DESCUBRIMIENTO AMPLIO =====
-  // Nuevos hashtags de alta conversión para dropshipping
-  { query: '#amazonfinds',        videos: 20 }, // NUEVO — señal de compra directa
-  { query: '#tiktokmademebuyit',  videos: 20 }, // NUEVO — señal de compra más fuerte de TikTok
+// 30 hashtags × 5 vídeos = 150 vídeos
+// 20 evergreen (todo el año) + 10 estacionales (según trimestre actual)
+// El trimestre se calcula automáticamente por la fecha del servidor
+
+function getQuarterHashtags() {
+  const month = new Date().getMonth() + 1; // 1-12
+
+  // Q1: Enero-Marzo — Invierno + organización + fitness
+  const Q1 = [
+    '#wintermusthaves', '#winterproducts', '#coldweatheressentials',
+    '#organization', '#declutter', '#organizedlife',
+    '#fitnessproducts', '#homeworkout', '#healthgadgets', '#newyearfinds',
+  ];
+
+  // Q2: Abril-Junio — Primavera + jardín + mascotas + viajes
+  const Q2 = [
+    '#gardenfinds', '#gardenhacks', '#outdoorproducts', '#patioideas',
+    '#travelproducts', '#travelessentials',
+    '#petfinds', '#dogmusthaves', '#springfinds', '#springcleaning',
+  ];
+
+  // Q3: Julio-Septiembre — Verano
+  const Q3 = [
+    '#summerproducts', '#summermusthaves', '#poolproducts', '#poolhacks',
+    '#beachmusthaves', '#vacationessentials',
+    '#summergadgets', '#coolingproducts', '#travelgadgets', '#outdoormusthaves',
+  ];
+
+  // Q4: Octubre-Diciembre — Halloween + Black Friday + Navidad
+  const Q4 = [
+    '#giftideas', '#christmasgifts', '#giftfinds', '#stockingstuffers',
+    '#holidaymusthaves', '#blackfridayfinds',
+    '#christmasshopping', '#halloweendecor', '#cozyhome', '#holidaygifts',
+  ];
+
+  if (month <= 3) return { quarter: 'Q1', hashtags: Q1 };
+  if (month <= 6) return { quarter: 'Q2', hashtags: Q2 };
+  if (month <= 9) return { quarter: 'Q3', hashtags: Q3 };
+  return           { quarter: 'Q4', hashtags: Q4 };
+}
+
+// 20 hashtags evergreen — motor principal todo el año
+const EVERGREEN_HASHTAGS = [
+  '#tiktokmademebuyit',  // señal de compra más fuerte de TikTok
+  '#viralproducts',
+  '#coolgadgets',
+  '#musthave',
+  '#musthaves',
+  '#bestfinds',
+  '#lifehacks',
+  '#productfinds',
+  '#shopwithme',
+  '#petproducts',
+  '#petgadgets',
+  '#dogproducts',
+  '#homefinds',
+  '#homeessentials',
+  '#kitchengadgets',
+  '#cleaningproducts',
+  '#travelgadgets',
+  '#gadgets',
+  '#techgadgets',
+  '#gadgetreview',
 ];
+
+// Construir QUERIES_CONFIG combinando evergreen + estacionales del trimestre actual
+const { quarter: QUARTER, hashtags: SEASONAL_HASHTAGS } = getQuarterHashtags();
+console.log(`[CAZADOR] Trimestre: ${QUARTER} | Hashtags estacionales: ${SEASONAL_HASHTAGS.length}`);
+
+const QUERIES_CONFIG = [
+  ...EVERGREEN_HASHTAGS.map(h => ({ query: h, videos: 5, tipo: 'evergreen' })),
+  ...SEASONAL_HASHTAGS.map(h => ({ query: h, videos: 5, tipo: 'estacional' })),
+];
+
+console.log(`[CAZADOR] Total hashtags: ${QUERIES_CONFIG.length} (20 evergreen + 10 ${QUARTER}) | Total vídeos: ${QUERIES_CONFIG.reduce((s, q) => s + q.videos, 0)}`);
 
 const FILTROS = {
   min_views: 50000,
