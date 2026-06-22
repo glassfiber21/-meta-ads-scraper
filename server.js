@@ -64,7 +64,8 @@ function getQuarterHashtags() {
   return           { quarter: 'Q4', hashtags: Q4 };
 }
 
-// 20 hashtags evergreen — motor principal todo el año
+// 24 hashtags evergreen — motor principal todo el año
+// Incluye nichos mascotas y bebés (alta conversión, compradores con poder adquisitivo)
 const EVERGREEN_HASHTAGS = [
   '#tiktokmademebuyit',  // señal de compra más fuerte de TikTok
   '#viralproducts',
@@ -75,26 +76,48 @@ const EVERGREEN_HASHTAGS = [
   '#lifehacks',
   '#productfinds',
   '#shopwithme',
+  // ===== MASCOTAS =====
   '#petproducts',
   '#petgadgets',
   '#dogproducts',
+  '#dogtok',          // muy viral, productos de nicho claro
+  '#petmom',          // alta intención de compra
+  // ===== BEBÉS / FAMILIA =====
+  '#babygadgets',     // nicho evergreen de altísima conversión
+  '#momhacks',        // compradores con poder adquisitivo
+  // ===== HOGAR / COCINA =====
   '#homefinds',
   '#homeessentials',
   '#kitchengadgets',
   '#cleaningproducts',
+  // ===== TECH / GADGETS =====
   '#travelgadgets',
   '#gadgets',
   '#techgadgets',
-  '#gadgetreview',
 ];
 
-// Construir QUERIES_CONFIG combinando evergreen + estacionales del trimestre actual
+// Los estacionales se reducen a 6 para mantener 30 hashtags totales
+function getQuarterHashtags() {
+  const month = new Date().getMonth() + 1;
+
+  const Q1 = ['#wintermusthaves','#organization','#fitnessproducts','#homeworkout','#healthgadgets','#newyearfinds'];
+  const Q2 = ['#gardenfinds','#outdoorproducts','#travelproducts','#petfinds','#springfinds','#springcleaning'];
+  const Q3 = ['#summerproducts','#poolproducts','#beachmusthaves','#summergadgets','#coolingproducts','#vacationessentials'];
+  const Q4 = ['#giftideas','#christmasgifts','#stockingstuffers','#holidaymusthaves','#blackfridayfinds','#cozyhome'];
+
+  if (month <= 3) return { quarter: 'Q1', hashtags: Q1 };
+  if (month <= 6) return { quarter: 'Q2', hashtags: Q2 };
+  if (month <= 9) return { quarter: 'Q3', hashtags: Q3 };
+  return           { quarter: 'Q4', hashtags: Q4 };
+}
+
+// Construir QUERIES_CONFIG: 24 evergreen + 6 estacionales = 30 hashtags × 10 vídeos = 300 vídeos
 const { quarter: QUARTER, hashtags: SEASONAL_HASHTAGS } = getQuarterHashtags();
 console.log(`[CAZADOR] Trimestre: ${QUARTER} | Hashtags estacionales: ${SEASONAL_HASHTAGS.length}`);
 
 const QUERIES_CONFIG = [
-  ...EVERGREEN_HASHTAGS.map(h => ({ query: h, videos: 5, tipo: 'evergreen' })),
-  ...SEASONAL_HASHTAGS.map(h => ({ query: h, videos: 5, tipo: 'estacional' })),
+  ...EVERGREEN_HASHTAGS.map(h => ({ query: h, videos: 10, tipo: 'evergreen' })),
+  ...SEASONAL_HASHTAGS.map(h => ({ query: h, videos: 10, tipo: 'estacional' })),
 ];
 
 console.log(`[CAZADOR] Total hashtags: ${QUERIES_CONFIG.length} (20 evergreen + 10 ${QUARTER}) | Total vídeos: ${QUERIES_CONFIG.reduce((s, q) => s + q.videos, 0)}`);
@@ -1155,35 +1178,14 @@ app.get('/cazador/stream', async (req, res) => {
       }
       stats.meta_pasan++;
 
-      // CAPA 3 — GOOGLE TRENDS
-      sseWrite(res, 'capa', { capa: 3, nombre: 'Google Trends', estado: 'running',
-        producto: nombre, detalle: `Analizando "${keywordMeta}"...` });
-
-      let trendsData = null;
-      try {
-        const r = await fetch(
-          `${TRENDS_URL}/test-trends?keyword=${encodeURIComponent(keywordMeta)}&geo=US`,
-          { signal: AbortSignal.timeout(90000) }
-        );
-        trendsData = await r.json();
-      } catch(e) { console.error(`[TRENDS] ${nombre}:`, e.message); }
-
-      const decisionTrends = decideTrendsFilter(trendsData);
+      // CAPA 3 — GOOGLE TRENDS (BYPASSED — actor de pago, se reactiva cuando haya ingresos)
+      sseWrite(res, 'capa', { capa: 3, nombre: 'Google Trends', estado: 'done',
+        producto: nombre, detalle: '⏭️ Bypassed — todos los productos pasan directamente' });
       sseWrite(res, 'trends_result', {
-        producto: nombre, decision: decisionTrends,
-        trend_90d:   trendsData?.trend_90d,
-        trend_12m:   trendsData?.trend_12m,
-        phase:       trendsData?.phase,
-        phase_icon:  trendsData?.phase_icon,
-        pct_of_peak: trendsData?.vs_peak?.pctOfPeak,
-        semaforo:    trendsData?.semaforo,
+        producto: nombre, decision: 'pasa',
+        trend_90d: 'N/A', trend_12m: 'N/A',
+        phase: 'Sin datos', phase_icon: '⏭️', semaforo: 'bypass',
       });
-
-      if (decisionTrends === 'descarta') {
-        sseWrite(res, 'descartado', { producto: nombre, capa: 'Trends',
-          motivo: `${trendsData?.trend_90d}/90d + ${trendsData?.trend_12m}/12m + ${trendsData?.vs_peak?.pctOfPeak||0}% del pico` });
-        continue;
-      }
       stats.trends_pasan++;
 
       // CAPA 4 — VIABILIDAD ESPAÑA (no filtra, solo enriquece)
