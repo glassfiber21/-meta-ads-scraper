@@ -961,8 +961,8 @@ async function extraerPrecios(ads, currency) {
     } catch(e) {}
   }
 
-  const landings = [...landingMap.entries()]; // [[domain, url], ...]
-  console.log(`[VIABILIDAD] ${landings.length} landing pages únicas a scrapear`);
+  const landings = [...landingMap.entries()].slice(0, 5); // máx 5 para no colapsar RAM
+  console.log(`[VIABILIDAD] ${landings.length} landing pages únicas a scrapear (máx 5)`);
 
   // Scrapear en paralelo (máx 5 simultáneas para no saturar)
   const resultados = [];
