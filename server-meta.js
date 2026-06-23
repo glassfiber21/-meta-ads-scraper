@@ -90,7 +90,106 @@ async function scrapeMetaAds(keyword) {
     return ads;
   }
   
-  console.log(`[META] No hay dataset para "${keyword}" — devolviendo vacío`);
+  // Sin dataset local → lanzar Apify en tiempo real
+  console.log(`[META] No hay dataset local para "${keyword}" — lanzando Apify en tiempo real`);
+  return await scrapeMetaAdsDirecto(keyword);
+}
+
+// Scraping directo con META_ACTOR (jj5sAMeSoXotatkss) para productos sin dataset local
+async function scrapeMetaAdsDirecto(keyword) {
+  if (!APIFY_API_KEY) {
+    console.log('[META] APIFY_API_KEY no configurada — devolviendo vacío');
+    return [];
+  }
+
+  console.log(`[META] Lanzando actor ${META_ACTOR}: keyword="${keyword}"`);
+
+  const runRes = await fetch(`https://api.apify.com/v2/acts/${META_ACTOR}/runs?token=${APIFY_API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      searchQuery:    keyword,
+      country:        'US',
+      activeStatus:   'active',
+      adType:         'all',
+      mediaType:      'all',
+      sortMode:       'total_impressions',
+      sortDirection:  'desc',
+      maxConcurrency: 1,
+      requestHandlerTimeoutSecs: 300,
+    }),
+  });
+
+  if (!runRes.ok) {
+    const err = await runRes.text();
+    console.error(`[META] Error lanzando actor: ${runRes.status} — ${err}`);
+    return [];
+  }
+
+  const runData = await runRes.json();
+  const runId   = runData.data?.id;
+  if (!runId) {
+    console.error('[META] No se obtuvo runId');
+    return [];
+  }
+
+  console.log(`[META] Actor lanzado, runId=${runId}. Esperando resultados...`);
+
+  // Polling hasta que el run termine (máx 4 minutos)
+  const maxWait = 240_000;
+  const poll    = 5_000;
+  const start   = Date.now();
+
+  while (Date.now() - start < maxWait) {
+    await new Promise(r => setTimeout(r, poll));
+
+    const statusRes  = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${APIFY_API_KEY}`);
+    const statusData = await statusRes.json();
+    const status     = statusData.data?.status;
+
+    console.log(`[META] Run ${runId} status: ${status}`);
+
+    if (status === 'SUCCEEDED') {
+      const datasetId = statusData.data?.defaultDatasetId;
+      const itemsRes  = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${APIFY_API_KEY}&limit=${MAX_ADS}`);
+      const items     = await itemsRes.json();
+      console.log(`[META] Obtenidos ${items.length} anuncios en tiempo real para "${keyword}"`);
+      return Array.isArray(items) ? items : [];
+    }
+
+    if (['FAILED', 'ABORTED', 'TIMED-OUT'].includes(status)) {
+      // Intentar recuperar datos parciales
+      const datasetId = statusData.data?.defaultDatasetId;
+      if (datasetId) {
+        const itemsRes = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${APIFY_API_KEY}&limit=${MAX_ADS}`);
+        const items    = await itemsRes.json();
+        if (Array.isArray(items) && items.length > 0) {
+          console.log(`[META] Run ${status} pero recuperados ${items.length} anuncios parciales para "${keyword}"`);
+          return items;
+        }
+      }
+      console.error(`[META] Actor terminó con status ${status} y sin datos — devolviendo vacío`);
+      return [];
+    }
+  }
+
+  // Timeout: intentar datos parciales
+  console.error(`[META] Timeout esperando actor para "${keyword}" — intentando datos parciales`);
+  try {
+    const statusRes2  = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${APIFY_API_KEY}`);
+    const statusData2 = await statusRes2.json();
+    const datasetId2  = statusData2.data?.defaultDatasetId;
+    if (datasetId2) {
+      const itemsRes2 = await fetch(`https://api.apify.com/v2/datasets/${datasetId2}/items?token=${APIFY_API_KEY}&limit=${MAX_ADS}`);
+      const items2    = await itemsRes2.json();
+      if (Array.isArray(items2) && items2.length > 0) {
+        console.log(`[META] Timeout pero recuperados ${items2.length} anuncios parciales`);
+        return items2;
+      }
+    }
+  } catch(e) {
+    console.error('[META] Error recuperando datos parciales tras timeout:', e.message);
+  }
   return [];
 }
 
