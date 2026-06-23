@@ -108,15 +108,9 @@ async function scrapeMetaAdsDirecto(keyword) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      searchQuery:    keyword,
-      country:        'US',
-      activeStatus:   'active',
-      adType:         'all',
-      mediaType:      'all',
-      sortMode:       'total_impressions',
-      sortDirection:  'desc',
-      maxConcurrency: 1,
-      requestHandlerTimeoutSecs: 300,
+      keyword:          keyword,
+      numberOfResults:  50,
+      sortOrder:        'total_impressions',
     }),
   });
 
@@ -829,7 +823,6 @@ async function scrapeMetaAdsLive(keyword, country, days = 7) {
       sortMode:          'total_impressions',
       sortDirection:     'desc',
       maxConcurrency:    1,
-      requestHandlerTimeoutSecs: 300,
     }),
   });
 
